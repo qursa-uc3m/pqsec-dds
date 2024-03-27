@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+ <CycloneDDS
+    xmlns="https://cdds.io/config"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd"
+ >
+    <Domain id="any">
+        <Security>
+            <Authentication>
+                <Library initFunction="init_authentication" finalizeFunction="finalize_authentication" path="dds_pqsec"/>
+                <IdentityCA>file:../../certs/example_id_ca_cert.pem</IdentityCA>
+                <IdentityCertificate>file:../../certs/example_alice_cert.pem</IdentityCertificate>
+                <PrivateKey>file:../../certs/example_alice_priv_key.pem</PrivateKey>
+                <!-- Optional: Include CRL if you are using Certificate Revocation Lists -->
+                <!-- <CRL>file:/path/to/my_custom_crl.pem</CRL> -->
+                <!-- Optional: Include if your plugin requires a password for decrypting the private key -->
+                <!-- <Password>base64_encoded_aes_key</Password> -->
+            </Authentication>
+            <Cryptographic>
+                <Library initFunction="init_crypto" finalizeFunction="finalize_crypto" path="dds_security_crypto"/>
+            </Cryptographic>
+            <AccessControl>
+                <Library initFunction="init_access_control" finalizeFunction="finalize_access_control" path="dds_security_ac"/>
+            </AccessControl>
+        </Security>
+    </Domain>
+</CycloneDDS>

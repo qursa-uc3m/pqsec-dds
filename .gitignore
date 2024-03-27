@@ -1,0 +1,11 @@
+# Dev environment
+.vscode
+
+# Cyclone DDS
+/cyclonedds/
+
+# Custom plugin
+build/
+
+# OpenDDS
+/OpenDDS/
