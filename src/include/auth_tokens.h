@@ -41,6 +41,7 @@
 #define DDS_AUTHTOKEN_PROP_C_PDATA "c.pdata"
 #define DDS_AUTHTOKEN_PROP_C_DSIGN_ALGO "c.dsign_algo"
 #define DDS_AUTHTOKEN_PROP_C_KAGREE_ALGO "c.kagree_algo"
+#define DDS_AUTHTOKEN_PROP_KEM_PUBLIC "kem_public"
 #define DDS_AUTHTOKEN_PROP_HASH_C1 "hash_c1"
 #define DDS_AUTHTOKEN_PROP_DH1 "dh1"
 #define DDS_AUTHTOKEN_PROP_CHALLENGE1 "challenge1"
@@ -55,12 +56,15 @@
 //#define DDS_AUTHTOKEN_PROP_C_KAGREE_ALGO "c.kagree_algo"
 #define DDS_AUTHTOKEN_PROP_HASH_C2 "hash_c2"
 #define DDS_AUTHTOKEN_PROP_DH2 "dh2"
+#define DDS_AUTHTOKEN_PROP_KEM_CIPHERTEXT "kem_ciphertext"
 //#define DDS_AUTHTOKEN_PROP_HASH_C1 "hash_c1"
 //#define DDS_AUTHTOKEN_PROP_DH1 "dh1"
 //#define DDS_AUTHTOKEN_PROP_CHALLENGE1 "challenge1"
 #define DDS_AUTHTOKEN_PROP_CHALLENGE2 "challenge2"
 //#define DDS_AUTHTOKEN_PROP_OCSP_STATUS "ocsp_status"
 #define DDS_AUTHTOKEN_PROP_SIGNATURE "signature"
+#define DDS_AUTHTOKEN_PROP_KEM_SIGNATURE "kem_signature"
+#define DDS_AUTHTOKEN_PROP_SIGNATURE_PUBLIC_KEY "signature public key"
 
 // HandshakeFinalMessageToken
 #define DDS_AUTHTOKEN_FINAL_CLASS_ID "DDS:Auth:PKI-DH:1.0+Final"
