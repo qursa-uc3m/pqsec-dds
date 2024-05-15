@@ -20,13 +20,16 @@
 
 #include "dds/security/dds_security_api.h"
 #include "dds/ddsrt/time.h"
+#include "oqs/oqs.h"
 
 #define DDS_AUTH_PLUGIN_CONTEXT "Authentication"
 
 typedef enum {
     AUTH_ALGO_KIND_UNKNOWN,
     AUTH_ALGO_KIND_RSA_2048,
-    AUTH_ALGO_KIND_EC_PRIME256V1
+    AUTH_ALGO_KIND_EC_PRIME256V1,
+    AUTH_ALGO_KIND_KYBER_768,
+    AUTH_ALGO_KIND_DILITHIUM_3
 } AuthenticationAlgoKind_t;
 
 typedef struct AuthenticationChallenge {
@@ -81,7 +84,7 @@ DDS_Security_ValidationResult_t load_X509_CRL(const char *data, X509_CRL **crl, 
 DDS_Security_ValidationResult_t verify_certificate(X509 *identityCert, X509 *identityCa, X509_CRL *crl, DDS_Security_SecurityException *ex);
 
 DDS_Security_ValidationResult_t check_certificate_expiry(const X509 *cert, DDS_Security_SecurityException *ex);
-AuthenticationAlgoKind_t get_authentication_algo_kind(X509 *cert);
+AuthenticationAlgoKind_t get_authentication_algo_kind(X509 *cert, bool pq_case);
 AuthenticationChallenge *generate_challenge(DDS_Security_SecurityException *ex);
 DDS_Security_ValidationResult_t get_certificate_contents(X509 *cert, unsigned char **data, uint32_t *size, DDS_Security_SecurityException *ex);
 DDS_Security_ValidationResult_t generate_dh_keys(EVP_PKEY **dhkey, AuthenticationAlgoKind_t authKind, DDS_Security_SecurityException *ex);
@@ -92,5 +95,15 @@ DDS_Security_ValidationResult_t get_trusted_ca_list(const char* trusted_ca_dir, 
 char * string_from_data(const unsigned char *data, uint32_t size);
 DDS_Security_ValidationResult_t create_validate_asymmetrical_signature(bool create, EVP_PKEY *pkey, const unsigned char *data, const size_t dataLen,
     unsigned char **signature, size_t *signatureLen, DDS_Security_SecurityException *ex);
+DDS_Security_ValidationResult_t generate_kem_keys(uint8_t **kem_public_key, uint8_t **kem_secret_key, size_t *length_public_key, 
+  size_t *length_secret_key, AuthenticationAlgoKind_t authKind);
+DDS_Security_ValidationResult_t encapsulate_kem_key(uint8_t **kem_ciphertext, uint8_t **kem_secret, size_t *length_ciphertext,
+  size_t *length_secret, const DDS_Security_BinaryProperty_t *kem_public, AuthenticationAlgoKind_t authKind);
+DDS_Security_ValidationResult_t decapsulate_kem_key(uint8_t **kem_secret, size_t *length_secret, const DDS_Security_BinaryProperty_t *kem_ciphertext, 
+  const DDS_Security_BinaryProperty_t *kem_public, uint8_t *kem_private, AuthenticationAlgoKind_t authKind);
+DDS_Security_ValidationResult_t create_pq_signature(const DDS_Security_BinaryProperty_t **binary_properties, int n_bprops, 
+  uint8_t **sign_public_key, uint8_t **kem_signature, size_t *sign_public_key_len, size_t *kem_signature_len, AuthenticationAlgoKind_t authKind);
+DDS_Security_ValidationResult_t validate_pq_signature(const DDS_Security_BinaryProperty_t **binary_properties, int n_bprops,
+  const DDS_Security_BinaryProperty_t *sign_public_key, const DDS_Security_BinaryProperty_t *signature_kem, AuthenticationAlgoKind_t authKind);
 
 #endif /* AUTH_UTILS_H */

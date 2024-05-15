@@ -1,12 +1,9 @@
-// Copyright(c) 2006 to 2021 ZettaScale Technology and others
-//
-// This program and the accompanying materials are made available under the
-// terms of the Eclipse Public License v. 2.0 which is available at
-// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
-// v. 1.0 which is available at
-// http://www.eclipse.org/org/documents/edl-v10.php.
-//
-// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+// Title: Integrating post quantum criptography on a publisher-consumer communication over CycloneDDS. 
+// Author: Adrián Serrano Navarro (100429115)
+/* Description: This code implements a KEM handshake that uses post quantum algorithms, kyber768 (key aggreement) and Dilithium3 (signature). 
+                Publisher and consumer start a communication on CycloneDDS and began a KEM handshake with a key generation, an encapuslation 
+                and a decapsulation process in order to authenticate the other part and establish a shared secret. 
+*/
 
 #include <assert.h>
 #include <string.h>
@@ -22,10 +19,12 @@
 #include "dds/ddsrt/static_assert.h"
 #include "dds/security/dds_security_api_defs.h"
 #include "dds/security/core/dds_security_utils.h"
+#include "dds/security/core/dds_security_serialize.h"
 #include "dds/security/openssl_support.h"
 #include "auth_utils.h"
 
 #define MAX_TRUSTED_CA 100
+#define PLUGIN_DEBUG 1
 
 typedef enum {
     AUTH_CONF_ITEM_PREFIX_UNKNOWN,
@@ -94,7 +93,8 @@ dds_time_t get_certificate_expiry(const X509 *cert)
   return DDS_TIME_INVALID;
 }
 
-DDS_Security_ValidationResult_t get_subject_name_DER_encoded(const X509 *cert, unsigned char **buffer, size_t *size, DDS_Security_SecurityException *ex)
+DDS_Security_ValidationResult_t get_subject_name_DER_encoded(const X509 *cert, unsigned char **buffer, size_t *size, 
+  DDS_Security_SecurityException *ex)
 {
   unsigned char *tmp = NULL;
   int32_t sz;
@@ -176,7 +176,8 @@ static DDS_Security_ValidationResult_t check_certificate_type_and_size(X509 *cer
   EVP_PKEY *pkey = X509_get_pubkey(cert);
   if (!pkey)
   {
-    DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE, DDS_SECURITY_VALIDATION_FAILED, "X509_get_pubkey failed");
+    DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE, DDS_SECURITY_VALIDATION_FAILED, 
+    "X509_get_pubkey failed");
     return DDS_SECURITY_VALIDATION_FAILED;
   }
   DDS_Security_ValidationResult_t result = check_key_type_and_size(pkey, false, ex);
@@ -194,7 +195,8 @@ DDS_Security_ValidationResult_t check_certificate_expiry(const X509 *cert, DDS_S
   }
   if (X509_cmp_current_time(X509_get_notAfter(cert)) == 0)
   {
-    DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_CERT_EXPIRED_CODE, DDS_SECURITY_VALIDATION_FAILED, DDS_SECURITY_ERR_CERT_EXPIRED_MESSAGE);
+    DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_CERT_EXPIRED_CODE, DDS_SECURITY_VALIDATION_FAILED, 
+    DDS_SECURITY_ERR_CERT_EXPIRED_MESSAGE);
     return DDS_SECURITY_VALIDATION_FAILED;
   }
   return DDS_SECURITY_VALIDATION_OK;
@@ -206,13 +208,15 @@ static DDS_Security_ValidationResult_t load_X509_certificate_from_bio (BIO *bio,
 
   if (!(*x509Cert = PEM_read_bio_X509(bio, NULL, NULL, NULL)))
   {
-    DDS_Security_Exception_set_with_openssl_error(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE, DDS_SECURITY_VALIDATION_FAILED, "Failed to parse certificate: ");
+    DDS_Security_Exception_set_with_openssl_error(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE, 
+    DDS_SECURITY_VALIDATION_FAILED, "Failed to parse certificate: ");
     return DDS_SECURITY_VALIDATION_FAILED;
   }
 
-  if (get_authentication_algo_kind(*x509Cert) == AUTH_ALGO_KIND_UNKNOWN)
+  if (get_authentication_algo_kind(*x509Cert, PLUGIN_DEBUG) == AUTH_ALGO_KIND_UNKNOWN)
   {
-    DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_CERT_AUTH_ALGO_KIND_UNKNOWN_CODE, DDS_SECURITY_VALIDATION_FAILED, DDS_SECURITY_ERR_CERT_AUTH_ALGO_KIND_UNKNOWN_MESSAGE);
+    DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_CERT_AUTH_ALGO_KIND_UNKNOWN_CODE, 
+    DDS_SECURITY_VALIDATION_FAILED, DDS_SECURITY_ERR_CERT_AUTH_ALGO_KIND_UNKNOWN_MESSAGE);
     X509_free(*x509Cert);
     return DDS_SECURITY_VALIDATION_FAILED;
   }
@@ -246,11 +250,11 @@ static BIO *load_file_into_BIO (const char *filename, DDS_Security_SecurityExcep
   DDSRT_WARNING_MSVC_ON(4996);
 
   // Seek to end, get position and go back.  It'll choke on a file of a couple GB, but at
-  // least one won't be able to pass it a socket and keep streaming data in until it
-  // explodes.
+  // least one won't be able to pass it a socket and keep streaming data in until it explodes.
   if (fseek (fp, 0, SEEK_END) != 0)
   {
-    DDS_Security_Exception_set (ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE, DDS_SECURITY_VALIDATION_FAILED, "load_file_into_BIO: seek to end failed");
+    DDS_Security_Exception_set (ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE, DDS_SECURITY_VALIDATION_FAILED, 
+    "load_file_into_BIO: seek to end failed");
     goto err_get_length;
   }
   errno = 0;
@@ -621,25 +625,34 @@ err_store_new:
   return DDS_SECURITY_VALIDATION_FAILED;
 }
 
-AuthenticationAlgoKind_t get_authentication_algo_kind(X509 *cert)
+//Must change and take the pq sign algorithm from the certificate
+AuthenticationAlgoKind_t get_authentication_algo_kind(X509 *cert, bool pq_case)
 {
   AuthenticationAlgoKind_t kind = AUTH_ALGO_KIND_UNKNOWN;
   assert(cert);
-  EVP_PKEY *pkey = X509_get_pubkey(cert);
-  if (pkey)
-  {
-    switch (EVP_PKEY_id(pkey))
+  if (pq_case){
+    /* When compiling the plugin code, OQS provider should be added*/
+    /*Actual Openssl does not obtain the pq attributes of a cert. With the provider functions they can be obtained*/
+    /* For the moment we use a predifined algorithm*/
+    kind = AUTH_ALGO_KIND_DILITHIUM_3;
+  }
+  else{
+    EVP_PKEY *pkey = X509_get_pubkey(cert); 
+    if (pkey)
     {
-    case EVP_PKEY_RSA:
-      if (EVP_PKEY_bits(pkey) == 2048)
-        kind = AUTH_ALGO_KIND_RSA_2048;
-      break;
-    case EVP_PKEY_EC:
-      if (EVP_PKEY_bits(pkey) == 256)
-        kind = AUTH_ALGO_KIND_EC_PRIME256V1;
-      break;
-    }
+      switch (EVP_PKEY_id(pkey))
+      {
+      case EVP_PKEY_RSA:
+        if (EVP_PKEY_bits(pkey) == 2048)
+          kind = AUTH_ALGO_KIND_RSA_2048;
+        break;
+      case EVP_PKEY_EC:
+        if (EVP_PKEY_bits(pkey) == 256)
+          kind = AUTH_ALGO_KIND_EC_PRIME256V1;
+        break;
+      }
     EVP_PKEY_free(pkey);
+    }
   }
   return kind;
 }
@@ -1167,4 +1180,186 @@ DDS_Security_ValidationResult_t create_validate_asymmetrical_signature(bool crea
 err:
   EVP_MD_CTX_destroy(mdctx);
   return DDS_SECURITY_VALIDATION_FAILED;
+}
+
+/*-----------------------------------------------------------------------------------------------------------------------------------*/
+
+/* PQ KEM FUNCTIONS*/
+
+DDS_Security_ValidationResult_t generate_kem_keys(uint8_t **kem_public_key, uint8_t **kem_secret_key, size_t *length_public_key, size_t *length_secret_key, AuthenticationAlgoKind_t authKind)
+{
+  OQS_STATUS rc = OQS_ERROR;
+ *kem_public_key = NULL;
+ *kem_secret_key = NULL;
+ switch (authKind)
+  { 
+  case AUTH_ALGO_KIND_KYBER_768:
+    *length_public_key = OQS_KEM_kyber_768_length_public_key;
+    *length_secret_key = OQS_KEM_kyber_768_length_secret_key;
+    *kem_public_key = malloc (*length_public_key * sizeof(uint8_t)); 
+    *kem_secret_key = malloc (*length_secret_key * sizeof(uint8_t));
+    if (*kem_public_key == NULL || *kem_secret_key == NULL) {
+      return DDS_SECURITY_VALIDATION_FAILED;
+    }
+    rc = OQS_KEM_kyber_768_keypair(*kem_public_key, *kem_secret_key);
+    break;
+  default:
+    assert(0);
+    return DDS_SECURITY_VALIDATION_FAILED;
+  }
+  
+  if (rc != OQS_SUCCESS) {
+     memset(*kem_secret_key, 0, *length_secret_key);
+     free(*kem_secret_key);
+		return DDS_SECURITY_VALIDATION_FAILED;
+	}
+  return DDS_SECURITY_VALIDATION_OK;
+}
+
+
+DDS_Security_ValidationResult_t encapsulate_kem_key(uint8_t **kem_ciphertext, uint8_t **kem_secret, size_t *length_ciphertext,
+      size_t *length_secret, const DDS_Security_BinaryProperty_t *kem_public, AuthenticationAlgoKind_t authKind)
+{
+  OQS_STATUS rc = OQS_ERROR;
+  *kem_ciphertext = NULL;
+  *kem_secret = NULL;
+  switch (authKind)
+  { 
+  case AUTH_ALGO_KIND_KYBER_768:
+    *length_ciphertext = OQS_KEM_kyber_768_length_ciphertext;
+    *length_secret = OQS_KEM_kyber_768_length_shared_secret;
+    *kem_ciphertext = malloc (*length_ciphertext * sizeof(uint8_t)); 
+    *kem_secret = malloc (*length_secret * sizeof(uint8_t));
+    if (*kem_ciphertext == NULL || *kem_secret == NULL) {
+      return DDS_SECURITY_VALIDATION_FAILED;
+    }
+    rc = OQS_KEM_kyber_768_encaps(*kem_ciphertext, *kem_secret, kem_public->value._buffer);
+    break;
+  default:
+    assert(0);
+    return DDS_SECURITY_VALIDATION_FAILED;
+  }
+
+  if (rc != OQS_SUCCESS) {
+    memset(*kem_secret, 0, *length_secret);
+    free(*kem_secret);
+    return DDS_SECURITY_VALIDATION_FAILED;
+  }
+  return DDS_SECURITY_VALIDATION_OK;
+}
+
+DDS_Security_ValidationResult_t decapsulate_kem_key(uint8_t **kem_secret, size_t *length_secret, const DDS_Security_BinaryProperty_t *kem_ciphertext, 
+const DDS_Security_BinaryProperty_t *kem_public, uint8_t *kem_private, AuthenticationAlgoKind_t authKind){
+
+  *kem_secret = NULL;
+  OQS_STATUS rc = OQS_ERROR;
+
+  switch (authKind)
+  { 
+  case AUTH_ALGO_KIND_KYBER_768:
+    *length_secret = OQS_KEM_kyber_768_length_shared_secret;
+    *kem_secret = malloc (*length_secret * sizeof(uint8_t));
+    if (*kem_secret == NULL) {
+      return DDS_SECURITY_VALIDATION_FAILED;
+    }
+    rc = OQS_KEM_kyber_768_decaps(*kem_secret, kem_ciphertext->value._buffer, kem_private); 
+    break;
+  default:
+    assert(0);
+    return DDS_SECURITY_VALIDATION_FAILED;
+  } 
+
+  if (rc != OQS_SUCCESS) {
+    memset(*kem_secret, 0, *length_secret);
+    free(*kem_secret);
+    return DDS_SECURITY_VALIDATION_FAILED;
+  }
+  return DDS_SECURITY_VALIDATION_OK;
+}
+
+uint8_t *serialize_binary_properties(const DDS_Security_BinaryProperty_t **binary_properties, int n_bprops, size_t *message_len) {
+    unsigned char *buffer;
+    size_t size;
+    DDS_Security_Serializer serializer = DDS_Security_Serializer_new(4096, 4096);
+    DDS_Security_Serialize_BinaryPropertyArray(serializer, binary_properties, n_bprops);
+    DDS_Security_Serializer_buffer(serializer, &buffer, &size);
+
+    *message_len = size;
+    uint8_t *message = (uint8_t *)malloc(size * sizeof(uint8_t));
+
+    for (size_t i = 0; i < *message_len; i++) {
+        message[i] = (uint8_t) buffer[i]; 
+    }
+    ddsrt_free(buffer);
+    DDS_Security_Serializer_free(serializer);
+
+    return message;
+}
+
+DDS_Security_ValidationResult_t create_pq_signature(const DDS_Security_BinaryProperty_t **binary_properties, int n_bprops, 
+uint8_t **sign_public_key, uint8_t **kem_signature, size_t *sign_public_key_len, size_t *kem_signature_len, AuthenticationAlgoKind_t authKind) 
+{
+  size_t message_len;
+  uint8_t *message = serialize_binary_properties(binary_properties, n_bprops, &message_len);
+  if (message == NULL) {
+    return DDS_SECURITY_VALIDATION_FAILED;
+  }
+
+  *kem_signature = NULL;
+  *sign_public_key = NULL;
+  OQS_STATUS rc = OQS_ERROR;
+
+  switch (authKind)
+  { 
+  case AUTH_ALGO_KIND_DILITHIUM_3:
+    *sign_public_key_len = OQS_SIG_dilithium_3_length_public_key;
+    *sign_public_key = malloc (*sign_public_key_len * sizeof(uint8_t));
+    uint8_t sign_secret_key[OQS_SIG_dilithium_3_length_secret_key];
+    *kem_signature = malloc (OQS_SIG_dilithium_3_length_signature * sizeof(uint8_t));
+    rc = OQS_SIG_dilithium_3_keypair(*sign_public_key, sign_secret_key);
+    if (rc != OQS_SUCCESS) {
+      memset(sign_secret_key, 0, OQS_SIG_dilithium_3_length_secret_key);
+      free(kem_signature);
+      free(sign_public_key);
+      return DDS_SECURITY_VALIDATION_FAILED;}
+    rc = OQS_SIG_dilithium_3_sign(*kem_signature, kem_signature_len, message, message_len, sign_secret_key);
+    if (rc != OQS_SUCCESS) {
+      memset(sign_secret_key, 0, OQS_SIG_dilithium_3_length_secret_key);
+      free(kem_signature);
+      free(sign_public_key);
+      return DDS_SECURITY_VALIDATION_FAILED;
+    }
+    break;
+  default:
+    assert(0);
+    return DDS_SECURITY_VALIDATION_FAILED;
+  }
+
+  free(message);
+  return DDS_SECURITY_VALIDATION_OK;
+}
+
+DDS_Security_ValidationResult_t validate_pq_signature(const DDS_Security_BinaryProperty_t **binary_properties, int n_bprops,
+const DDS_Security_BinaryProperty_t *sign_public_key, const DDS_Security_BinaryProperty_t *signature_kem, AuthenticationAlgoKind_t authKind) 
+{
+  size_t message_len;
+  uint8_t *message = serialize_binary_properties(binary_properties, n_bprops, &message_len);
+  if (message == NULL) {
+    return DDS_SECURITY_VALIDATION_FAILED;
+  }
+  OQS_STATUS rc;
+  
+  switch (authKind)
+  { 
+  case AUTH_ALGO_KIND_DILITHIUM_3:
+    rc = OQS_SIG_dilithium_3_verify(message, message_len, signature_kem->value._buffer, signature_kem->value._length/sizeof(uint8_t), sign_public_key->value._buffer);
+    if (rc != OQS_SUCCESS) {
+      return DDS_SECURITY_VALIDATION_FAILED;}
+    break;
+  default:
+    assert(0);
+    return DDS_SECURITY_VALIDATION_FAILED;
+  }
+
+  return DDS_SECURITY_VALIDATION_OK;
 }
