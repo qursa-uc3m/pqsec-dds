@@ -13,11 +13,10 @@
 
 #include "dds/ddsrt/atomics.h"
 #include "dds/security/dds_security_api.h"
-#include "dds/security/export.h"
 #include "oqs/oqs.h" // liboqs
 
-SECURITY_EXPORT int32_t init_authentication(const char *argument, void **context, struct ddsi_domaingv *gv);
-SECURITY_EXPORT int32_t finalize_authentication(void *context);
+int32_t init_authentication(const char *argument, void **context, struct ddsi_domaingv *gv);
+int32_t finalize_authentication(void *context);
 
 DDS_Security_ValidationResult_t validate_local_identity(
     dds_security_authentication *instance,
