@@ -1,4 +1,4 @@
-# DDS-pqsec
+# PQSec-DDS
 
 This is a (work in progress) DDS security plugin C/C++ library integrating Post-Quantum Cryptography (PQC) algorithms trough Open Quantum Safe's [liboqs](https://github.com/open-quantum-safe/liboqs) library and [oqs-provider](https://github.com/open-quantum-safe/oqs-provider).
 
@@ -6,6 +6,23 @@ It follows the [DDS Security specification (v1.1)](https://www.omg.org/spec/DDS-
 
 - [Eclipse Cyclone DDS](https://github.com/eclipse-cyclonedds/cyclonedds)
 - [OpenDDS](https://github.com/OpenDDS/OpenDDS)
+
+## About this project
+
+Preliminary ideas and results of this project were presented at the [IX Jornadas Nacionales de Investigación en Ciberseguridad](https://2024.jnic.es/) held from 27-29th May in Sevilla, Spain. The conference paper
+
+- ***PQSec-DDS: Integrating Post-Quantum Cryptography into DDS Security for Robotic Applications*** by F. J. Blanco-Romero, V. Lorenzo, F. Almenares, D. Dı́az-Sánchez and A. Serrano Navarro
+
+was presented on 29th May. You can find the paper at pages 396-403 of the proceedings [Actas de las IX Jornadas Nacionales de Investigación en Ciberseguridad](https://idus.us.es/handle/11441/159179).
+
+This project includes contributions from Adrián Serrano Navarro's master's thesis ***Integrating post quantum criptography on a publisher-consumer communication over CycloneDDS***, with the integration of the Kyber768 KEM and Dilithium3 signature via liboqs.
+
+### Contributors
+
+The code of this project has been developed by
+
+- [Javier Blanco-Romero](https://github.com/fj-blanco)
+- [Adrián Serrano Navarro](https://github.com/100429115)
 
 ## Building dependencies
 

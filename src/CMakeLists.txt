@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(DDS-PQSec_plugin)
+project(PQSec-DDS_plugin)
 
 set(CMAKE_C_STANDARD 99)
 

@@ -8,6 +8,9 @@
 //
 // SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 //
+// PQSec-DDS:
+// Copyright (C) 2024 Javier Blanco (@fj-blanco)
+//
 // KYBER768 KEM integration and Dilithium3 signature via liboqs:
 // Copyright (C) 2023 Adrián Serrano Navarro (@100429115)
 // as a part of the Master Thesis "Integrating post quantum criptography on a publisher-consumer communication over CycloneDDS"
