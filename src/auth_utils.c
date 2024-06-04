@@ -32,7 +32,6 @@
 #include "auth_utils.h"
 
 #define MAX_TRUSTED_CA 100
-#define PLUGIN_DEBUG 1
 
 typedef enum {
     AUTH_CONF_ITEM_PREFIX_UNKNOWN,
@@ -221,7 +220,7 @@ static DDS_Security_ValidationResult_t load_X509_certificate_from_bio (BIO *bio,
     return DDS_SECURITY_VALIDATION_FAILED;
   }
 
-  if (get_authentication_algo_kind(*x509Cert, PLUGIN_DEBUG) == AUTH_ALGO_KIND_UNKNOWN)
+  if (get_authentication_algo_kind(*x509Cert) == AUTH_ALGO_KIND_UNKNOWN)
   {
     DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_CERT_AUTH_ALGO_KIND_UNKNOWN_CODE, 
     DDS_SECURITY_VALIDATION_FAILED, DDS_SECURITY_ERR_CERT_AUTH_ALGO_KIND_UNKNOWN_MESSAGE);
@@ -633,19 +632,17 @@ err_store_new:
   return DDS_SECURITY_VALIDATION_FAILED;
 }
 
-//Must change and take the pq sign algorithm from the certificate
-AuthenticationAlgoKind_t get_authentication_algo_kind(X509 *cert, bool pq_case)
+AuthenticationAlgoKind_t get_authentication_algo_kind(X509 *cert)
 {
   AuthenticationAlgoKind_t kind = AUTH_ALGO_KIND_UNKNOWN;
   assert(cert);
-  if (pq_case){
+#ifdef PQ_CRYPTO
     /* When compiling the plugin code, OQS provider should be added*/
     /*Actual Openssl does not obtain the pq attributes of a cert. With the provider functions they can be obtained*/
     /* For the moment we use a predifined algorithm*/
     kind = AUTH_ALGO_KIND_DILITHIUM_3;
-  }
-  else{
-    EVP_PKEY *pkey = X509_get_pubkey(cert); 
+#else
+    EVP_PKEY *pkey = X509_get_pubkey(cert);
     if (pkey)
     {
       switch (EVP_PKEY_id(pkey))
@@ -659,9 +656,9 @@ AuthenticationAlgoKind_t get_authentication_algo_kind(X509 *cert, bool pq_case)
           kind = AUTH_ALGO_KIND_EC_PRIME256V1;
         break;
       }
-    EVP_PKEY_free(pkey);
+      EVP_PKEY_free(pkey);
     }
-  }
+#endif
   return kind;
 }
 

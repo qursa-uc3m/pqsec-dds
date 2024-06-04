@@ -142,7 +142,12 @@ We can build the plugin with the following commands
 cd src/
 mkdir build
 cd build
-cmake -DCYCLONEDDS_PATH=<path_to_cyclonedds> -DLIBOQS_PATH=<path_to_liboqs> -DOPENSSL_PATH=<path_to_openssl> ..
+cmake -DENABLE_PQ_CRYPTO=ON \
+    -DDEBUG=ON \
+    -DCYCLONEDDS_PATH=<path_to_cyclonedds> \
+    -DLIBOQS_PATH=<path_to_liboqs> \
+    -DOPENSSL_PATH=<path_to_openssl> \
+    ..
 cmake --build .
 ```
 

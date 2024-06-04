@@ -90,7 +90,7 @@ DDS_Security_ValidationResult_t load_X509_CRL(const char *data, X509_CRL **crl, 
 DDS_Security_ValidationResult_t verify_certificate(X509 *identityCert, X509 *identityCa, X509_CRL *crl, DDS_Security_SecurityException *ex);
 
 DDS_Security_ValidationResult_t check_certificate_expiry(const X509 *cert, DDS_Security_SecurityException *ex);
-AuthenticationAlgoKind_t get_authentication_algo_kind(X509 *cert, bool pq_case);
+AuthenticationAlgoKind_t get_authentication_algo_kind(X509 *cert);
 AuthenticationChallenge *generate_challenge(DDS_Security_SecurityException *ex);
 DDS_Security_ValidationResult_t get_certificate_contents(X509 *cert, unsigned char **data, uint32_t *size, DDS_Security_SecurityException *ex);
 DDS_Security_ValidationResult_t generate_dh_keys(EVP_PKEY **dhkey, AuthenticationAlgoKind_t authKind, DDS_Security_SecurityException *ex);
