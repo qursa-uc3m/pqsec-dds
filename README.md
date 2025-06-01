@@ -5,7 +5,8 @@ This is a (work in progress) DDS security plugin C/C++ library integrating Post-
 It follows the [DDS Security specification (v1.1)](https://www.omg.org/spec/DDS-SECURITY/1.1/About-DDS-SECURITY) and it has been designed to be compatible with the following DDS implementations:
 
 - [Eclipse Cyclone DDS](https://github.com/eclipse-cyclonedds/cyclonedds)
-- [OpenDDS](https://github.com/OpenDDS/OpenDDS)
+
+The dinamical loading of external plugins is well documented in Cyclone DDS. See *External Plugin Development* [here](https://cyclonedds.io/docs/cyclonedds/0.8.2/security.html#external-plugin-developmentl).
 
 ## About this project
 
@@ -24,159 +25,215 @@ The code of this project has been developed by
 - [Javier Blanco-Romero](https://github.com/fj-blanco)
 - [Adrián Serrano Navarro](https://github.com/100429115)
 
-## Building dependencies
+## Project History
 
-We need to build the `liboqs` library and enable PQ cryptography in OpenSSL trough the `oqs-provider` library.
+- **v0.0.1 (Experimental)**: Initial implementation using [liboqs](https://github.com/open-quantum-safe/liboqs) directly for post-quantum cryptographic operations.
 
-### Building `liboqs`
+- **Current (v0.1.0+)**: Migrated to OpenSSL-based implementation using the [oqs-provider](https://github.com/open-quantum-safe/oqs-provider), providing better integration with standard OpenSSL workflows and improved compatibility.
 
-You can follow the instructions in the official repository [open-quantum-safe/liboqs](https://github.com/open-quantum-safe/liboqs) to build the library. Here is a quick guide to build the library in a custom directory
+## Requirements
 
-```bash
-cd /tmp
-sudo rm -rf liboqs
-git clone --branch main https://github.com/open-quantum-safe/liboqs.git
-cd liboqs
-mkdir build && cd build
-sudo mkdir -p <path_to_liboqs>
-cmake -GNinja -DCMAKE_INSTALL_PREFIX=<path_to_liboqs> ..
-ninja
-sudo ninja install
-```
+### OpenSSL Version Requirements
 
-Ensure the `liboqs` library is correctly build under the `<path_to_liboqs>` directory.
+- **Minimum**: OpenSSL 3.0
+- **Latest**: OpenSSL 3.5+ includes native ML-KEM and ML-DSA support
 
-### Building `oqs-provider`
+PQSec-DDS inherits the same OpenSSL version requirements and behaviors as the [oqs-provider](https://github.com/open-quantum-safe/oqs-provider):
 
-You can also follow the instructions in the official repository [open-quantum-safe/oqs-provider](https://github.com/open-quantum-safe/oqs-provider) to build the provider.
+### Dependencies
 
-First we build a separate installation of OpenSSL 3.*
+- **OpenSSL 3.0+** with development headers
+- **liboqs 0.13.0+** (built automatically by oqs-provider)
+- **Eclipse CycloneDDS** (built by provided scripts)
 
-```bash
-cd <oqs-provider-install-dir>
-git clone git://git.openssl.org/openssl.git
-cd openssl
-./config --prefix=$(echo $(pwd)/../.local) && make && make install_sw
-cd ..
-```
+**Note**: When using OpenSSL 3.5+, some algorithms will automatically use OpenSSL's native implementations instead of oqs-provider.
 
-Building the provider. Run this in the `<oqs-provider-install-dir>` directory:
+## Quick Start
+
+The easiest way to build PQSec-DDS is using the provided build scripts:
 
 ```bash
-cd <oqs-provider-install-dir>
-git clone https://github.com/open-quantum-safe/oqs-provider.git
-cd oqs-provider
-cmake -DOPENSSL_ROOT_DIR=$(pwd)/../.local -DCMAKE_PREFIX_PATH=$(pwd)/../.local -S . -B _build
-cmake --build _build
-cd ..
+# 1. Build OQS (OpenSSL with Post-Quantum support)
+./scripts/build_oqs.sh
+
+# 2. Build CycloneDDS
+./scripts/build_cyclonedds.sh
+
+# 3. Build the PQSec-DDS plugin
+./scripts/build_plugin.sh
+
+# 4. Set up environment and test
+source setup_env.sh
 ```
 
-Add the provider to the `LD_LIBRARY_PATH` environment variable
+## Automated Build Scripts
 
-```text
-export LD_LIBRARY_PATH="<oqs-provider-install-dir>/.local/lib64:$LD_LIBRARY_PATH"
-```
+### Building OQS Provider and OpenSSL (`build_oqs.sh`)
 
-### Adding `openssl.cnf` file enabling the oqs-provider
-
-First check the location of the OpenSSL `openssl.cnf` configuration file with
+This script builds OpenSSL 3.x with OQS provider for post-quantum cryptography support.
+bash
 
 ```bash
-<oqs-provider-install-dir>/.local/bin/openssl version -d
+./scripts/build_oqs.sh [OPTIONS]
 ```
 
-Make sure that the obtained directory contains a `openssl.cnf` file containing the following lines
+Options:
 
-```text
-[openssl_init]
-providers = provider_sect
+- `-p DIR` - Installation directory (default: /opt/oqs_openssl3)
+- `-d` 0|1 - Debug mode (default: 0)
+- `-o` VERSION - OpenSSL version (default: openssl-3.5.0)
+- `-l` VERSION - liboqs version (default: 0.13.0)
+- `-q` VERSION - OQS provider version (default: 0.9.0)
+- `-j` JOBS - Parallel build jobs (default: $(nproc))
+- `-f` - Force clean rebuild
+- `-h` - Show help
 
-# List of providers to load
-[provider_sect]
-oqsprovider = oqsprovider_section
-default = default_sect
+### Building CycloneDDS (build_cyclonedds.sh)
 
-[oqsprovider_section]
-activate = 1
-module = <oqs-provider-install-dir>/oqs-provider/_build/lib/oqsprovider.so
-[default_sect]
-activate = 1
-[legacy_sect]
-activate = 1
-```
+This script builds Eclipse CycloneDDS with examples and testing enabled.
 
-Notice that you have to point to the `oqsprovider.so` file location, in this case in the `oqs-provider` build directory.
-
-Check that the providers habe been corretly loaded with
 
 ```bash
-<oqs-provider-install-dir>/.local/bin/openssl list -providers -verbose
+./scripts/build_cyclonedds.sh [OPTIONS]
 ```
 
-## CycloneDDS
+Options:
 
-The dinamical loading of external plugins is well documented in Cyclone DDS. See *External Plugin Development* [here](https://cyclonedds.io/docs/cyclonedds/0.8.2/security.html#external-plugin-developmentl).
+- `-p` DIR` - Installation directory (default: ./cyclonedds_install)
+- `-v` VERSION - CycloneDDS version (default: 0.10.5)
+- `-t` TYPE - Build type: Debug|Release (default: Debug)
+- `-j` JOBS - Parallel build jobs (default: $(nproc))
+- `-f` - Force clean rebuild
+- `-h` - Show help
 
-### Building Cyclone DDS
+### Building PQSec-DDS Plugin (build_plugin.sh)
+
+This script builds the PQSec-DDS authentication plugin with configurable cryptographic algorithms.
 
 ```bash
-git clone https://github.com/eclipse-cyclonedds/cyclonedds.git
-cd cyclonedds
-mkdir build
-cd build
+./scripts/build_plugin.sh [OPTIONS]
 ```
 
-and then build it and install it in the `<path_to_cyclonedds>` directory
+Options:
+
+- `-c` DIR - CycloneDDS path (default: ./cyclonedds_install)
+- `-l` DIR - liboqs path (default: /opt/oqs_openssl3/.local)
+- `-o` DIR - OQS provider path (default: /opt/oqs_openssl3)
+- `-t` TYPE - Build type: Debug|Release (default: Debug)
+- `-j` JOBS - Parallel build jobs (default: $(nproc))
+- `--pq` - Enable PQ crypto (default)
+- `--no-pq` - Disable PQ crypto (use traditional DH)
+- `--kem` ALGORITHM - Select KEM algorithm (see below)
+- `--debug-level` LEVEL - Set debug level (NONE|ERROR|WARN|INFO|TRACE|DATA)
+- `-f` - Force clean rebuild
+- `-h` - Show help
+
+#### Supported KEM Algorithms:
+
+Classical (traditional):
+
+- `ecdh_p256` - ECDH P-256 (default for --no-pq)
+- `dh_2048` - Diffie-Hellman 2048-bit
+
+Post-Quantum (ML-KEM):
+
+- `mlkem512` - ML-KEM-512 (128-bit security)
+- `mlkem768` - ML-KEM-768 (192-bit security, recommended default)
+- `mlkem1024` - ML-KEM-1024 (256-bit security)
+
+Hybrid:
+
+- `X25519MLKEM768` - X25519 + ML-KEM-768
+- `p256_mlkem768` - P-256 + ML-KEM-768
+
+#### Debug Levels:
+
+- `NONE` - No debug output
+- `ERROR` - Error messages only
+- `WARN` - Warnings and errors
+- `INFO` - General information + above (default)
+- `TRACE` - Detailed tracing + above
+- `DATA` - Data dumps and hex output + above
+
+## Plugin Environment Setup
+
+### Certificate Generation
+
+Generate DDS security certificates for testing:
 
 ```bash
-sudo mkdir <path_to_cyclonedds>
-cmake -DCMAKE_BUILD_TYPE=Debug -DBUILD_EXAMPLES=ON -DBUILD_TESTING=ON -DCMAKE_INSTALL_PREFIX=<path_to_cyclonedds> ..
-sudo cmake --build . --target install
+cd certs
+./generate_certs.sh
 ```
 
-## Building the external plugin pqsec-dds for CycloneDDS
+This script generates a set of certificates for different algorithms and levels of security, including:
 
-We can build the plugin with the following commands
+- ML-DSA: mldsa44 (Level 2), mldsa65 (Level 3), mldsa87 (Level 5)
+- Falcon: falcon512 (Level 1), falcon1024 (Level 5)
+- Traditional: RSA 2048, ECDSA P-256 for comparison
+- Organized in folders: `mldsa/`, `falcon/`, `rsa/`, `traditional/`
+
+Each certificate set includes CA certificates, entity certificates, and private keys required for DDS security authentication.
+
+## Configuration Files
+
+Three CycloneDDS XML configuration files are available in `config/cyclonedds/`:
+
+- `custom_auth_plugin.xml` - PQSec-DDS plugin with traditional ECDSA certificates
+- `custom_auth_plugin_mldsa44.xml` - PQSec-DDS plugin with post-quantum ML-DSA44 certificates (default)
+- `test_auth_config.xml` - Built-in CycloneDDS authentication for baseline testing
+
+Set the configuration, for example, for the post-quantum ML-DSA44 plugin, you can use:
 
 ```bash
-cd src/
-mkdir build
-cd build
-cmake -DENABLE_PQ_CRYPTO=ON \
-    -DDEBUG=ON \
-    -DCYCLONEDDS_PATH=<path_to_cyclonedds> \
-    -DLIBOQS_PATH=<path_to_liboqs> \
-    -DOPENSSL_PATH=<path_to_openssl> \
-    ..
-cmake --build .
+export CYCLONEDDS_URI=./config/cyclonedds/custom_auth_plugin_mldsa44.xml
 ```
 
-### Setting the configuration for the custom authentication plugin
+## Environment Setup
 
-The configuration file can be found at `config/cyclonedds/custom_auth_plugin.xml` (note, see [Configuration guide](https://cyclonedds.io/docs/cyclonedds/latest/config/index.html#configuration-guide) for more information about configuration files). Go to the `cyclonedds/build` and export the `CYCLONEDDS_URI` environment variable to point to this file
+You can use the provided environment setup script to configure all necessary environment variables:
 
 ```bash
-export CYCLONEDDS_URI=<path_to_workdir>/config/cyclonedds/custom_auth_plugin.xml
+source setup_env.sh
 ```
 
-This configuration file contains the paths to the certificates and keys used for the authentication process. You can generate these certificates by executing the script `generate_certs.sh` in the `certs` directory.
+This script automatically:
 
-Then link the custom plugin dynamic libraries to the `LD_LIBRARY_PATH` environment variable
+- Sets up OQS provider environment (uses `/opt/oqs_openssl3` - default from `build_oqs_enhanced.sh`)
+- Configures DDS library paths (uses `./cyclonedds_install` - default from `build_cyclonedds.sh`)
+- Sets the plugin configuration (uses `./src/build/lib` - default from `build_plugin.sh`)
+- Verifies all components are found
 
-```bash
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:<path_to_workdir>/src/build/lib
-```
+Note: The environment setup uses the default installation paths from the build scripts above. If you used custom paths with the `-p`, `-c`, `-l`, or `-o` options in the build scripts, you'll need to either modify `setup_env.sh` accordingly or use manual environment setup.
+
+## Testing the Plugin
 
 You can have a quick test running the test application with
 
 ```bash
+source setup_env.sh
 ./bin/HelloworldSubscriber
 ```
 
 and
 
 ```bash
+source setup_env.sh
 ./bin/HelloworldPublisher
 ```
 
-You should see the debug messages from the custom plugin.
+You should see the debug messages from the custom plugin and the publisher/subscriber exchanging messages:
+
+```text
+=== [Publisher]  Writing : Message (1, Hello World)
+```
+
+and
+
+```text
+=== [Subscriber] Received : Message (1, Hello World)
+```
+
+## Contributing
+
+Contributions are welcome!

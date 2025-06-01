@@ -3,9 +3,13 @@
 
 # Cyclone DDS
 /cyclonedds/
+/cyclonedds_install/
 
 # Custom plugin
 build/
 
 # OpenDDS
 /OpenDDS/
+
+# Certificates
+*.pem

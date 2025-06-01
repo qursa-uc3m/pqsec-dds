@@ -40,11 +40,11 @@
 
 #define OPENSSL_API_COMPAT 10101
 
-#include <openssl/opensslv.h>
-#include <openssl/opensslconf.h>
 #include <openssl/asn1.h>
 #include <openssl/bio.h>
 #include <openssl/conf.h>
+#include <openssl/opensslconf.h>
+#include <openssl/opensslv.h>
 
 #if OPENSSL_VERSION_NUMBER >= 0x1000200fL
 #define AUTH_INCLUDE_EC
@@ -59,15 +59,15 @@
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
-#include <openssl/rand.h>
-#include <openssl/sha.h>
 #include <openssl/pem.h>
 #include <openssl/pkcs7.h>
+#include <openssl/rand.h>
+#include <openssl/sha.h>
 #include <openssl/x509.h>
-#include <openssl/x509v3.h>
 #include <openssl/x509_vfy.h>
+#include <openssl/x509v3.h>
 
-void dds_openssl_init (void);
+void dds_openssl_init(void);
 
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
 /* 1.1.0 has it as a supported API. 1.0.2 has it in practice and since that has been
@@ -75,7 +75,8 @@ void dds_openssl_init (void);
 struct tm *OPENSSL_gmtime(const time_t *timer, struct tm *result);
 #endif
 
-void DDS_Security_Exception_set_with_openssl_error (DDS_Security_SecurityException *ex, const char *context, int code, int minor_code, const char *error_area)
-  ddsrt_nonnull_all;
+void DDS_Security_Exception_set_with_openssl_error(DDS_Security_SecurityException *ex,
+                                                   const char *context, int code, int minor_code,
+                                                   const char *error_area) ddsrt_nonnull_all;
 
 #endif
