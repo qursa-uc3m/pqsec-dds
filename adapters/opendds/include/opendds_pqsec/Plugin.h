@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2023-2026 Javier Blanco-Romero @fj-blanco (UC3M)
+ */
+
 #ifndef OPENDDS_PQSEC_PLUGIN_H
 #define OPENDDS_PQSEC_PLUGIN_H
 

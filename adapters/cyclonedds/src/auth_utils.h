@@ -6,7 +6,7 @@
  * auth_utils.h - Authentication utility functions and helpers
  *
  * This authentication plugin implements Post-Quantum Cryptography algorithms
- * for DDS security via liboqs and OpenSSL oqs-provider. Based on CycloneDDS
+ * for DDS security through OpenSSL providers. Based on CycloneDDS
  * built-in authentication plugin and DDS Security specification v1.1.
  */
 
@@ -20,24 +20,20 @@
 #endif
 #include <openssl/evp.h>
 #include <openssl/x509.h>
-#ifdef PQ_CRYPTO
-#include <openssl/provider.h>
-#endif
 
 #include "auth_algs.h"
 #include "dds/ddsrt/time.h"
 #include "dds/security/dds_security_api.h"
-#include "oqs/oqs.h"
 
 #define DDS_AUTH_PLUGIN_CONTEXT "Authentication"
 
 typedef struct AuthenticationChallenge {
-    unsigned char value[DDS_SECURITY_AUTHENTICATION_CHALLENGE_SIZE];
+  unsigned char value[DDS_SECURITY_AUTHENTICATION_CHALLENGE_SIZE];
 } AuthenticationChallenge;
 
 typedef struct {
-    uint32_t length;
-    X509 **buffer;
+  uint32_t length;
+  X509 **buffer;
 } X509Seq;
 
 /* Return the subject name of contained in a X509 certificate
@@ -127,51 +123,11 @@ create_validate_asymmetrical_signature(bool create, EVP_PKEY *pkey, const unsign
 /* PQ Crypto */
 #if defined(PQ_CRYPTO)
 DDS_Security_ValidationResult_t
-generate_kem_keys(uint8_t **kem_public_key, uint8_t **kem_secret_key, size_t *length_public_key,
-                  size_t *length_secret_key, AuthenticationAlgoKind_t authKind);
-DDS_Security_ValidationResult_t
-decapsulate_kem_key(uint8_t **kem_secret, size_t *length_secret,
-                    const DDS_Security_BinaryProperty_t *kem_ciphertext,
-                    const DDS_Security_BinaryProperty_t *kem_public, uint8_t *kem_private,
-                    AuthenticationAlgoKind_t authKind);
-
-int load_oqs_provider(OSSL_LIB_CTX **plibctx, const char *modulename, const char *configfile);
-
-DDS_Security_ValidationResult_t pq_public_key_to_oct(EVP_PKEY *pkey,
-                                                     AuthenticationAlgoKind_t kagreeAlgoKind,
-                                                     unsigned char **buffer, uint32_t *length,
-                                                     DDS_Security_SecurityException *ex);
-DDS_Security_ValidationResult_t pq_oct_to_public_key(EVP_PKEY **data, const unsigned char *str,
-                                                     uint32_t size,
-                                                     AuthenticationAlgoKind_t kagreeAlgoKind,
-                                                     OSSL_LIB_CTX *libctx,
-                                                     DDS_Security_SecurityException *ex);
-
-DDS_Security_ValidationResult_t
-pq_kem_encapsulation(EVP_PKEY *evp_public_key, size_t *length_ciphertext, size_t *length_secret,
-                     uint8_t **handshake_kem_ciphertext, uint8_t **local_kem_secret,
-                     const DDS_Security_BinaryProperty_t *kem_public,
-                     AuthenticationAlgoKind_t kagreeAlgoKind, DDS_Security_SecurityException *ex,
-                     OSSL_LIB_CTX *libctx);
-DDS_Security_ValidationResult_t encapsulate_kem_key(uint8_t **kem_ciphertext, uint8_t **kem_secret,
-                                                    size_t *length_ciphertext,
-                                                    size_t *length_secret,
-                                                    const DDS_Security_BinaryProperty_t *kem_public,
-                                                    AuthenticationAlgoKind_t authKind);
-DDS_Security_ValidationResult_t
 create_pq_signature(EVP_PKEY *pkey, const DDS_Security_BinaryProperty_t **binary_properties,
                     const uint32_t n_bprops, unsigned char **kem_signature,
                     size_t *kem_signature_len, DDS_Security_SecurityException *ex,
                     uint8_t **sign_public_key, AuthenticationAlgoKind_t authKind,
                     OSSL_LIB_CTX *libctx);
-DDS_Security_BinaryProperty_t *create_pqkey_property(const char *name, EVP_PKEY *pkey,
-                                                     AuthenticationAlgoKind_t kagreeAlgoKind,
-                                                     DDS_Security_SecurityException *ex);
-DDS_Security_ValidationResult_t
-pq_kem_decapsulation(EVP_PKEY *evp_public_key, uint8_t **kem_secret, size_t *length_secret,
-                     const DDS_Security_BinaryProperty_t *kem_ciphertext,
-                     AuthenticationAlgoKind_t authKind, DDS_Security_SecurityException *ex,
-                     OSSL_LIB_CTX *libctx);
 DDS_Security_ValidationResult_t
 validate_pq_signature(EVP_PKEY *pkey, const DDS_Security_BinaryProperty_t **bprops,
                       uint32_t n_bprops, const unsigned char *signature, size_t signature_len,

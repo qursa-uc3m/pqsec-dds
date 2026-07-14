@@ -1,3 +1,5 @@
+# Copyright (C) 2023-2026 Javier Blanco-Romero @fj-blanco (UC3M)
+
 cmake_minimum_required(VERSION 3.16)
 project(OpenDDS_PQSec VERSION 0.1.0 LANGUAGES CXX)
 

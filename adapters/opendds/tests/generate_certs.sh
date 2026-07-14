@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (C) 2023-2026 Javier Blanco-Romero @fj-blanco (UC3M)
+
 set -eu
 
 openssl=$1
@@ -20,3 +22,7 @@ done
 
 "$openssl" verify -CAfile "$output/identity_ca_cert.pem" \
   "$output/participant_a_cert.pem" "$output/participant_b_cert.pem"
+#!/usr/bin/env bash
+# Copyright (C) 2023-2026 Javier Blanco-Romero @fj-blanco (UC3M)
+# Copyright (C) 2023 Adrián Serrano Navarro @100429115 (UC3M)
+# SPDX-License-Identifier: Apache-2.0

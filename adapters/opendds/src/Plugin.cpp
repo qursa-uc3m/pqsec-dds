@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2023-2026 Javier Blanco-Romero @fj-blanco (UC3M)
+ */
+
 #include <opendds_pqsec/Plugin.h>
 
 #include "Authentication.h"
@@ -10,44 +14,34 @@ namespace {
 
 class PQSecSecurityPluginInst : public OpenDDS::Security::SecurityPluginInst {
 public:
-  PQSecSecurityPluginInst()
-    : authentication_(new OpenDDS_PQSec::Authentication)
-  {
-  }
+  PQSecSecurityPluginInst() : authentication_(new OpenDDS_PQSec::Authentication) {}
 
 private:
-  DDS::Security::Authentication_var create_authentication()
-  {
+  DDS::Security::Authentication_var create_authentication() {
     return authentication_;
   }
 
-  DDS::Security::AccessControl_var create_access_control()
-  {
+  DDS::Security::AccessControl_var create_access_control() {
     return DDS::Security::AccessControl::_nil();
   }
 
-  DDS::Security::CryptoKeyExchange_var create_crypto_key_exchange()
-  {
+  DDS::Security::CryptoKeyExchange_var create_crypto_key_exchange() {
     return DDS::Security::CryptoKeyExchange::_nil();
   }
 
-  DDS::Security::CryptoKeyFactory_var create_crypto_key_factory()
-  {
+  DDS::Security::CryptoKeyFactory_var create_crypto_key_factory() {
     return DDS::Security::CryptoKeyFactory::_nil();
   }
 
-  DDS::Security::CryptoTransform_var create_crypto_transform()
-  {
+  DDS::Security::CryptoTransform_var create_crypto_transform() {
     return DDS::Security::CryptoTransform::_nil();
   }
 
-  OpenDDS::DCPS::RcHandle<OpenDDS::Security::Utility> create_utility()
-  {
+  OpenDDS::DCPS::RcHandle<OpenDDS::Security::Utility> create_utility() {
     return OpenDDS::DCPS::RcHandle<OpenDDS::Security::Utility>();
   }
 
-  void shutdown()
-  {
+  void shutdown() {
     authentication_ = DDS::Security::Authentication::_nil();
   }
 
@@ -56,11 +50,10 @@ private:
 
 } // namespace
 
-int PQSecPluginLoader::init(int, ACE_TCHAR*[])
-{
+int PQSecPluginLoader::init(int, ACE_TCHAR *[]) {
   const OpenDDS::DCPS::String plugin_name("PQSec");
   OpenDDS::Security::SecurityPluginInst_rch plugin =
-    TheSecurityRegistry->get_plugin_inst(plugin_name, false);
+      TheSecurityRegistry->get_plugin_inst(plugin_name, false);
   if (!plugin) {
     plugin = OpenDDS::DCPS::make_rch<PQSecSecurityPluginInst>();
     TheSecurityRegistry->register_plugin(plugin_name, plugin);
@@ -69,10 +62,6 @@ int PQSecPluginLoader::init(int, ACE_TCHAR*[])
 }
 
 ACE_FACTORY_DEFINE(OPENDDS_PQSEC, PQSecPluginLoader)
-ACE_STATIC_SVC_DEFINE(
-  PQSecPluginLoader,
-  ACE_TEXT("OpenDDS_PQSec"),
-  ACE_SVC_OBJ_T,
-  &ACE_SVC_NAME(PQSecPluginLoader),
-  ACE_Service_Type::DELETE_THIS | ACE_Service_Type::DELETE_OBJ,
-  0)
+ACE_STATIC_SVC_DEFINE(PQSecPluginLoader, ACE_TEXT("OpenDDS_PQSec"), ACE_SVC_OBJ_T,
+                      &ACE_SVC_NAME(PQSecPluginLoader),
+                      ACE_Service_Type::DELETE_THIS | ACE_Service_Type::DELETE_OBJ, 0)

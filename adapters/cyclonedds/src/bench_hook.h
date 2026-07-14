@@ -5,7 +5,7 @@
  * bench_hook.h - Benchmarking and performance measurement interface
  *
  * This authentication plugin implements Post-Quantum Cryptography algorithms
- * for DDS security via liboqs and OpenSSL oqs-provider. Based on CycloneDDS
+ * for DDS security through OpenSSL providers. Based on CycloneDDS
  * built-in authentication plugin and DDS Security specification v1.1.
  */
 

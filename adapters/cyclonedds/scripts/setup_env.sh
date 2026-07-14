@@ -1,67 +1,33 @@
-#!/bin/bash
-#
-# setup_env.sh — Set environment variables
-# Copyright (C) 2023-2025 Javier Blanco-Romero
-#
+#!/usr/bin/env bash
+# Copyright (C) 2023-2026 Javier Blanco-Romero @fj-blanco (UC3M)
 
-echo "=== Setting up PQSec DDS Environment ==="
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+adapter_dir=$(cd "$script_dir/.." && pwd)
 
-# Step 1: Set up OQS environment
-echo "1. Setting up OQS environment..."
-if [ -f "./setup_oqs_env.sh" ]; then
-    source ./setup_oqs_env.sh
-elif [ -f "/opt/oqs_openssl3/setup_env.sh" ]; then
-    source /opt/oqs_openssl3/setup_env.sh
-else
-    echo "⚠ Warning: OQS setup script not found, setting up manually..."
-    export OPENSSL_ROOT_DIR="/opt/oqs_openssl3/.local"
-    export OPENSSL_CONF="/opt/oqs_openssl3/.local/ssl/openssl.cnf"
-    export OPENSSL_MODULES="/opt/oqs_openssl3/.local/lib64/ossl-modules"
-    export LD_LIBRARY_PATH="/opt/oqs_openssl3/.local/lib64:$LD_LIBRARY_PATH"
-    export OQS_PROVIDER_NAME="oqsprovider"
-    export OQS_PROVIDER_PATH="/opt/oqs_openssl3"
+prepend_library_path() {
+  if [ -d "$1" ]; then
+    LD_LIBRARY_PATH="$1${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  fi
+}
+
+prepend_library_path "$adapter_dir/cyclonedds_install/lib"
+prepend_library_path "$adapter_dir/build"
+export LD_LIBRARY_PATH
+
+# Native ML-KEM/ML-DSA and hybrid KEMs need no external provider setup. For an
+# experimental oqs-provider KEM, point this at the directory containing the
+# provider module before sourcing this script.
+if [ -n "${PQSEC_OPENSSL_MODULES:-}" ]; then
+  export OPENSSL_MODULES="$PQSEC_OPENSSL_MODULES"
 fi
 
-echo ""
-
-# Step 2: Set up DDS environment
-echo "2. Setting up DDS environment..."
-if [ -f "./setup_dds_env.sh" ]; then
-    source ./setup_dds_env.sh
-else
-    echo "⚠ Warning: DDS setup script not found, setting up with defaults..."
-    # Default DDS setup - use local installation first
-    if [ -d "./cyclonedds_install/lib" ]; then
-        export LD_LIBRARY_PATH="./cyclonedds_install/lib:$LD_LIBRARY_PATH"
-        echo "✓ CycloneDDS (local): ./cyclonedds_install/lib"
-    elif [ -d "/opt/cyclonedds/lib" ]; then
-        export LD_LIBRARY_PATH="/opt/cyclonedds/lib:$LD_LIBRARY_PATH"
-        echo "✓ CycloneDDS (system): /opt/cyclonedds/lib"
-    else
-        echo "⚠ Warning: CycloneDDS not found. Build with: ./scripts/build_cyclonedds.sh"
-    fi
-    if [ -d "/opt/liboqs/lib64" ]; then
-        export LD_LIBRARY_PATH="/opt/liboqs/lib64:$LD_LIBRARY_PATH"
-    elif [ -d "/opt/liboqs/lib" ]; then
-        export LD_LIBRARY_PATH="/opt/liboqs/lib:$LD_LIBRARY_PATH"
-    fi
-    # Look for plugin library in common locations
-    if [ -d "./src/build/lib" ]; then
-        export LD_LIBRARY_PATH="./src/build/lib:$LD_LIBRARY_PATH"
-        echo "✓ Plugin library: ./src/build/lib"
-    elif [ -d "./build/lib" ]; then
-        export LD_LIBRARY_PATH="./build/lib:$LD_LIBRARY_PATH"
-        echo "✓ Plugin library: ./build/lib"
-    else
-        echo "⚠ Warning: Plugin library not found. Build with: ./scripts/build_plugin.sh"
-    fi
-    if [ -f "./config/cyclonedds/custom_auth_plugin.xml" ]; then
-        export CYCLONEDDS_URI="./config/cyclonedds/custom_auth_plugin_mldsa44.xml"
-    fi
+if [ -z "${CYCLONEDDS_URI:-}" ] &&
+   [ -f "$adapter_dir/config/cyclonedds/custom_auth_plugin_mldsa44.xml" ]; then
+  export CYCLONEDDS_URI="$adapter_dir/config/cyclonedds/custom_auth_plugin_mldsa44.xml"
 fi
 
-echo ""
-echo "=== Environment Setup Complete ==="
-echo "You can now run your DDS applications:"
-echo "  ./cyclonedds_install/bin/HelloworldPublisher"
-echo "  ./cyclonedds_install/bin/HelloworldSubscriber"
+echo "CycloneDDS: $adapter_dir/cyclonedds_install/lib"
+echo "PQSec plugin: $adapter_dir/build/libdds_pqsec.so"
+if [ -n "${OPENSSL_MODULES:-}" ]; then
+  echo "OpenSSL modules: $OPENSSL_MODULES"
+fi

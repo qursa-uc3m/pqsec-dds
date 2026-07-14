@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2023-2026 Javier Blanco-Romero @fj-blanco (UC3M)
+ */
+
 #include "Transcript.h"
 
 #include <dds/DCPS/SequenceIterator.h>
@@ -12,36 +16,31 @@ namespace {
 const char PROTOCOL[] = "pqsec-dds.auth:1.0";
 const char PROPERTY_PREFIX[] = "pqsec-dds.";
 
-void append_domain(DDS::BinaryPropertySeq& properties, const char* role)
-{
+void append_domain(DDS::BinaryPropertySeq& properties, const char* role) {
   append(properties, (std::string(PROPERTY_PREFIX) + "protocol").c_str(), std::string(PROTOCOL));
   append(properties, (std::string(PROPERTY_PREFIX) + "role").c_str(), std::string(role));
 }
 
 } // namespace
 
-DDS::OctetSeq octets(const std::vector<unsigned char>& value)
-{
+DDS::OctetSeq octets(const std::vector<unsigned char>& value) {
   DDS::OctetSeq result;
   result.length(static_cast<CORBA::ULong>(value.size()));
-  if (!value.empty()) std::memcpy(result.get_buffer(), &value[0], value.size());
+  if (!value.empty())
+    std::memcpy(result.get_buffer(), &value[0], value.size());
   return result;
 }
 
-std::vector<unsigned char> bytes(const DDS::OctetSeq& value)
-{
+std::vector<unsigned char> bytes(const DDS::OctetSeq& value) {
   return std::vector<unsigned char>(value.get_buffer(), value.get_buffer() + value.length());
 }
 
-bool equal(const DDS::OctetSeq& lhs, const DDS::OctetSeq& rhs)
-{
+bool equal(const DDS::OctetSeq& lhs, const DDS::OctetSeq& rhs) {
   return lhs.length() == rhs.length() &&
-    (!lhs.length() || std::memcmp(lhs.get_buffer(), rhs.get_buffer(), lhs.length()) == 0);
+         (!lhs.length() || std::memcmp(lhs.get_buffer(), rhs.get_buffer(), lhs.length()) == 0);
 }
 
-void append(DDS::BinaryPropertySeq& properties, const char* name,
-            const DDS::OctetSeq& value)
-{
+void append(DDS::BinaryPropertySeq& properties, const char* name, const DDS::OctetSeq& value) {
   OpenDDS::DCPS::SequenceBackInsertIterator<DDS::BinaryPropertySeq> out(properties);
   DDS::BinaryProperty_t property;
   property.name = name;
@@ -50,22 +49,16 @@ void append(DDS::BinaryPropertySeq& properties, const char* name,
   *out = property;
 }
 
-void append(DDS::BinaryPropertySeq& properties, const char* name,
-            const std::string& value)
-{
+void append(DDS::BinaryPropertySeq& properties, const char* name, const std::string& value) {
   DDS::OctetSeq data;
   data.length(static_cast<CORBA::ULong>(value.size() + 1));
   std::memcpy(data.get_buffer(), value.c_str(), value.size() + 1);
   append(properties, name, data);
 }
 
-int credential_hash(const DDS::OctetSeq& certificate,
-                    const DDS::OctetSeq& permissions,
-                    const DDS::OctetSeq& participant_data,
-                    const std::string& signature_algorithm,
-                    const std::string& kem_algorithm,
-                    DDS::OctetSeq& result)
-{
+int credential_hash(const DDS::OctetSeq& certificate, const DDS::OctetSeq& permissions,
+                    const DDS::OctetSeq& participant_data, const std::string& signature_algorithm,
+                    const std::string& kem_algorithm, DDS::OctetSeq& result) {
   DDS::BinaryPropertySeq properties;
   append_domain(properties, "credential-hash");
   append(properties, "c.id", certificate);
@@ -76,13 +69,11 @@ int credential_hash(const DDS::OctetSeq& certificate,
   return OpenDDS::Security::SSL::hash_serialized(properties, result);
 }
 
-DDS::BinaryPropertySeq reply_transcript(const DDS::OctetSeq& hash2,
-                                        const DDS::OctetSeq& challenge2,
+DDS::BinaryPropertySeq reply_transcript(const DDS::OctetSeq& hash2, const DDS::OctetSeq& challenge2,
                                         const DDS::OctetSeq& ciphertext,
                                         const DDS::OctetSeq& challenge1,
                                         const DDS::OctetSeq& public_key,
-                                        const DDS::OctetSeq& hash1)
-{
+                                        const DDS::OctetSeq& hash1) {
   DDS::BinaryPropertySeq result;
   append_domain(result, "reply");
   append(result, "hash_c2", hash2);
@@ -94,13 +85,11 @@ DDS::BinaryPropertySeq reply_transcript(const DDS::OctetSeq& hash2,
   return result;
 }
 
-DDS::BinaryPropertySeq final_transcript(const DDS::OctetSeq& hash1,
-                                        const DDS::OctetSeq& challenge1,
+DDS::BinaryPropertySeq final_transcript(const DDS::OctetSeq& hash1, const DDS::OctetSeq& challenge1,
                                         const DDS::OctetSeq& public_key,
                                         const DDS::OctetSeq& challenge2,
                                         const DDS::OctetSeq& ciphertext,
-                                        const DDS::OctetSeq& hash2)
-{
+                                        const DDS::OctetSeq& hash2) {
   DDS::BinaryPropertySeq result;
   append_domain(result, "final");
   append(result, "hash_c1", hash1);

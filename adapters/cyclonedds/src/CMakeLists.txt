@@ -1,355 +1,143 @@
-#
-# Copyright (C) 2023-2025 Javier Blanco-Romero @fj-blanco (UC3M)
-# Copyright (C) 2023 Adrián Serrano Navarro @100429115 (UC3M) - Initial PQ integration
-#
-# PQSec-DDS: Post-Quantum Cryptography DDS Security Plugin
-# CMakeLists.txt - Build configuration and dependencies
-#
-# This authentication plugin implements Post-Quantum Cryptography algorithms
-# for DDS security via liboqs and OpenSSL oqs-provider. Based on CycloneDDS
-# built-in authentication plugin and DDS Security specification v1.1.
-#
+# Copyright (C) 2023-2026 Javier Blanco-Romero @fj-blanco (UC3M)
+# Copyright (C) 2023 Adrián Serrano Navarro @100429115 (UC3M)
+# SPDX-License-Identifier: Apache-2.0
 
-cmake_minimum_required(VERSION 3.10)
-project(PQSec-DDS_plugin)
+cmake_minimum_required(VERSION 3.16)
+project(PQSecDDSCycloneDDS VERSION 1.0.0 LANGUAGES C)
 
-set(CMAKE_C_STANDARD 99)
+include(CTest)
+include(GNUInstallDirs)
 
-# Options
-option(ENABLE_PQ_CRYPTO "Enable Post-Quantum Cryptography support" OFF)
-option(DEBUG "Plugin debug" OFF)
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
 
-# ================================
-# SIMPLE DEBUG CONFIGURATION
-# ================================
-option(ENABLE_PQ_LOGGING "Enable PQ-DDS logging system" ON)
+option(ENABLE_PQ_CRYPTO "Build the ML-KEM/ML-DSA authentication plugin" ON)
+option(ENABLE_PQ_LOGGING "Enable the adapter's diagnostic logging" OFF)
+option(DEBUG "Enable legacy plugin diagnostics" OFF)
 
-# Debug level options (can be set via -DPQ_DEBUG_LEVEL=...)
-set(PQ_DEBUG_LEVEL "TRACE" CACHE STRING "Default debug level (NONE|ERROR|WARN|INFO|TRACE|DATA)")
-set_property(CACHE PQ_DEBUG_LEVEL PROPERTY STRINGS "NONE" "ERROR" "WARN" "INFO" "TRACE" "DATA")
+set(PQ_DEBUG_LEVEL "INFO" CACHE STRING "NONE|ERROR|WARN|INFO|TRACE|DATA")
+set_property(CACHE PQ_DEBUG_LEVEL PROPERTY STRINGS NONE ERROR WARN INFO TRACE DATA)
+set(SELECTED_KEM_ALGORITHM "mlkem768" CACHE STRING
+    "OpenSSL KEM algorithm exposed by the default provider or oqs-provider")
+set_property(CACHE SELECTED_KEM_ALGORITHM PROPERTY STRINGS
+  mlkem512 mlkem768 mlkem1024 x25519_mlkem768 p256_mlkem768
+  frodo640shake bikel1 hqc128)
+set(PQSEC_FALLBACK_PROVIDER "oqsprovider" CACHE STRING
+    "OpenSSL provider loaded when the selected KEM is not initially available")
 
-# Validate debug level
-set(VALID_DEBUG_LEVELS "NONE" "ERROR" "WARN" "INFO" "TRACE" "DATA")
-list(FIND VALID_DEBUG_LEVELS "${PQ_DEBUG_LEVEL}" DEBUG_LEVEL_INDEX)
-if(DEBUG_LEVEL_INDEX EQUAL -1)
-    message(FATAL_ERROR 
-        "Invalid debug level '${PQ_DEBUG_LEVEL}'. "
-        "Valid levels: ${VALID_DEBUG_LEVELS}")
+set(_pq_kems
+  mlkem512 mlkem768 mlkem1024
+  x25519_mlkem768 p256_mlkem768
+  frodo640shake bikel1 hqc128)
+list(FIND _pq_kems "${SELECTED_KEM_ALGORITHM}" _kem_index)
+if(ENABLE_PQ_CRYPTO AND _kem_index EQUAL -1)
+  message(FATAL_ERROR
+    "${SELECTED_KEM_ALGORITHM} is not a supported OpenSSL KEM name. "
+    "Choose one of: ${_pq_kems}")
 endif()
 
-# Convert debug level to numeric value
-if(PQ_DEBUG_LEVEL STREQUAL "NONE")
-    set(PQ_DEBUG_LEVEL_NUM 0)
-elseif(PQ_DEBUG_LEVEL STREQUAL "ERROR")
-    set(PQ_DEBUG_LEVEL_NUM 1)
-elseif(PQ_DEBUG_LEVEL STREQUAL "WARN")
-    set(PQ_DEBUG_LEVEL_NUM 2)
-elseif(PQ_DEBUG_LEVEL STREQUAL "INFO")
-    set(PQ_DEBUG_LEVEL_NUM 3)
-elseif(PQ_DEBUG_LEVEL STREQUAL "TRACE")
-    set(PQ_DEBUG_LEVEL_NUM 4)
-elseif(PQ_DEBUG_LEVEL STREQUAL "DATA")
-    set(PQ_DEBUG_LEVEL_NUM 5)
+set(_debug_levels NONE ERROR WARN INFO TRACE DATA)
+list(FIND _debug_levels "${PQ_DEBUG_LEVEL}" PQ_DEBUG_LEVEL_NUM)
+if(PQ_DEBUG_LEVEL_NUM EQUAL -1)
+  message(FATAL_ERROR "Invalid PQ_DEBUG_LEVEL: ${PQ_DEBUG_LEVEL}")
 endif()
 
-message(STATUS "PQ-DDS Debug Level: ${PQ_DEBUG_LEVEL} (${PQ_DEBUG_LEVEL_NUM})")
-
-# ================================
-# KEM ALGORITHM CONFIGURATION
-# ================================
-
-# Set default if not specified
-if(NOT DEFINED SELECTED_KEM_ALGORITHM)
-    if(ENABLE_PQ_CRYPTO)
-        set(SELECTED_KEM_ALGORITHM "mlkem768")
-    else()
-        set(SELECTED_KEM_ALGORITHM "ecdh_p256")
-    endif()
+if(CYCLONEDDS_PATH)
+  list(PREPEND CMAKE_PREFIX_PATH "${CYCLONEDDS_PATH}")
+  set(CycloneDDS_DIR "${CYCLONEDDS_PATH}/${CMAKE_INSTALL_LIBDIR}/cmake/CycloneDDS"
+      CACHE PATH "CycloneDDS package directory")
 endif()
-
-# Define supported algorithms for validation
-set(SUPPORTED_KEM_ALGORITHMS
-    # Classical
-    "ecdh_p256" "dh_2048"
-    # ML-KEM
-    "mlkem512" "mlkem768" "mlkem1024"
-    # Hybrid
-    "X25519MLKEM768" "p256_mlkem768"
-)
-
-# Validate the selected algorithm
-list(FIND SUPPORTED_KEM_ALGORITHMS "${SELECTED_KEM_ALGORITHM}" ALGO_INDEX)
-if(ALGO_INDEX EQUAL -1)
-    message(FATAL_ERROR 
-        "Invalid KEM algorithm '${SELECTED_KEM_ALGORITHM}'. "
-        "Supported algorithms: ${SUPPORTED_KEM_ALGORITHMS}")
-endif()
-
-message(STATUS "Selected KEM Algorithm: ${SELECTED_KEM_ALGORITHM}")
-
-# ================================
-# PATH CONFIGURATION
-# ================================
-
-# Required paths
-if(NOT CYCLONEDDS_PATH)
-    message(FATAL_ERROR "CYCLONEDDS_PATH not provided. Please specify the path to CycloneDDS using -DCYCLONEDDS_PATH=/path/to/cyclonedds")
-endif()
-
-if(NOT LIBOQS_PATH)
-    message(FATAL_ERROR "LIBOQS_PATH not provided. Please specify the path to liboqs using -DLIBOQS_PATH=/path/to/liboqs")
-endif()
-
-# Set CMAKE_PREFIX_PATH to help find packages
-list(APPEND CMAKE_PREFIX_PATH "${CYCLONEDDS_PATH}")
-list(APPEND CMAKE_PREFIX_PATH "${LIBOQS_PATH}")
-
-# Set CycloneDDS_DIR explicitly to help find the config files
-set(CycloneDDS_DIR "${CYCLONEDDS_PATH}/lib/cmake/CycloneDDS")
-
-# OQS Provider configuration
-set(OQS_PROVIDER_PATH "/opt/oqs_openssl3" CACHE PATH "Path to OQS Provider installation")
-set(OQS_PROVIDER_NAME "oqsprovider" CACHE STRING "Name of the OQS provider")
-
-# OpenSSL configuration
-if(OPENSSL_PATH)
-    message(STATUS "Using provided OpenSSL path: ${OPENSSL_PATH}")
-    set(OPENSSL_ROOT_DIR ${OPENSSL_PATH})
-    list(APPEND CMAKE_PREFIX_PATH "${OPENSSL_PATH}")
-    set(OQS_OPENSSL_CONF "${OPENSSL_PATH}/.local/ssl/openssl.cnf" CACHE PATH "Path to OpenSSL configuration file")
-else()
-    message(STATUS "Using system default OpenSSL installation.")
-    set(OQS_OPENSSL_CONF "" CACHE PATH "Path to OpenSSL configuration file")
-endif()
-
-# ================================
-# FIND PACKAGES
-# ================================
-
-find_package(OpenSSL REQUIRED)
 find_package(CycloneDDS REQUIRED)
-
-# Try to use modern CycloneDDS targets first
-if(TARGET CycloneDDS::ddsc)
-    message(STATUS "✓ Using CycloneDDS modern CMake targets")
-    set(CYCLONEDDS_TARGET CycloneDDS::ddsc)
-    
-    # Get include directories from the target (if available)
-    get_target_property(CYCLONEDDS_INCLUDES CycloneDDS::ddsc INTERFACE_INCLUDE_DIRECTORIES)
-    if(CYCLONEDDS_INCLUDES)
-        set(CycloneDDS_INCLUDE_DIRS ${CYCLONEDDS_INCLUDES})
-        message(STATUS "Got include dirs from target: ${CycloneDDS_INCLUDE_DIRS}")
-    else()
-        # Fallback to manual path
-        set(CycloneDDS_INCLUDE_DIRS "${CYCLONEDDS_PATH}/include")
-        message(STATUS "Using manual CycloneDDS include path: ${CycloneDDS_INCLUDE_DIRS}")
-    endif()
-    
-else()
-    message(STATUS "CycloneDDS modern targets not found, using manual detection")
-    
-    # Manual fallback approach
-    set(CycloneDDS_INCLUDE_DIRS "${CYCLONEDDS_PATH}/include")
-    message(STATUS "Using manual CycloneDDS include path: ${CycloneDDS_INCLUDE_DIRS}")
-    
-    find_library(DDSC_LIBRARY ddsc PATHS "${CYCLONEDDS_PATH}/lib" NO_DEFAULT_PATH)
-    if(DDSC_LIBRARY)
-        set(CycloneDDS_LIBRARIES ${DDSC_LIBRARY})
-        set(CYCLONEDDS_TARGET ${DDSC_LIBRARY})
-        message(STATUS "Found CycloneDDS library manually: ${DDSC_LIBRARY}")
-    else()
-        message(FATAL_ERROR "Could not find CycloneDDS library at ${CYCLONEDDS_PATH}/lib")
-    endif()
-endif()
-
-# Find liboqs
-find_path(LIBOQS_INCLUDE_DIR 
-    NAMES oqs/oqs.h
-    PATHS ${LIBOQS_PATH}/include
-    NO_DEFAULT_PATH
-)
-
-find_library(LIBOQS_LIBRARY
-    NAMES oqs
-    PATHS ${LIBOQS_PATH}/lib ${LIBOQS_PATH}/lib64
-    NO_DEFAULT_PATH
-)
-
-# If not found in the provided path, try the OQS provider path
-if(NOT LIBOQS_INCLUDE_DIR OR NOT LIBOQS_LIBRARY)
-    if(OQS_PROVIDER_PATH)
-        find_path(LIBOQS_INCLUDE_DIR 
-            NAMES oqs/oqs.h
-            PATHS ${OQS_PROVIDER_PATH}/.local/include
-            NO_DEFAULT_PATH
-        )
-        
-        find_library(LIBOQS_LIBRARY
-            NAMES oqs
-            PATHS ${OQS_PROVIDER_PATH}/.local/lib ${OQS_PROVIDER_PATH}/.local/lib64
-            NO_DEFAULT_PATH
-        )
-    endif()
-endif()
-
-if(NOT LIBOQS_INCLUDE_DIR OR NOT LIBOQS_LIBRARY)
-    message(FATAL_ERROR "liboqs not found. Tried paths: ${LIBOQS_PATH} and ${OQS_PROVIDER_PATH}/.local")
-endif()
-
-# Debug output
-message(STATUS "OpenSSL_VERSION: ${OpenSSL_VERSION}")
-message(STATUS "OpenSSL include directory: ${OPENSSL_INCLUDE_DIR}")
-message(STATUS "OpenSSL libraries: ${OPENSSL_LIBRARIES}")
-message(STATUS "CycloneDDS include directories: ${CycloneDDS_INCLUDE_DIRS}")
-if(DEFINED CYCLONEDDS_TARGET)
-    message(STATUS "CycloneDDS target: ${CYCLONEDDS_TARGET}")
-endif()
-if(DEFINED CycloneDDS_LIBRARIES)
-    message(STATUS "CycloneDDS libraries: ${CycloneDDS_LIBRARIES}")
-endif()
-message(STATUS "liboqs include: ${LIBOQS_INCLUDE_DIR}")
-message(STATUS "liboqs library: ${LIBOQS_LIBRARY}")
-message(STATUS "OQS Provider path: ${OQS_PROVIDER_PATH}")
-message(STATUS "OQS Provider name: ${OQS_PROVIDER_NAME}")
-message(STATUS "OQS OpenSSL config: ${OQS_OPENSSL_CONF}")
-
-# Verify CycloneDDS headers exist
-if(EXISTS "${CycloneDDS_INCLUDE_DIRS}/dds/ddsrt/heap.h")
-    message(STATUS "✓ Found CycloneDDS heap.h header")
-else()
-    message(FATAL_ERROR "✗ CycloneDDS heap.h header not found at ${CycloneDDS_INCLUDE_DIRS}/dds/ddsrt/heap.h")
-endif()
-
-# Set library output directory
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-
-# ================================
-# CREATE LIBRARY
-# ================================
-
-# Create the shared library
-add_library(dds_pqsec SHARED
-    authentication.c
-    auth_algs.c
-    auth_utils.c
-    bench_hook.c
-    debug.c                              # Use correct filename
-    openssl/src/openssl_support.c
-)
-
-# Set include directories
-target_include_directories(dds_pqsec PRIVATE
-    ${PROJECT_SOURCE_DIR}
-    "${PROJECT_SOURCE_DIR}/include" 
-    "${PROJECT_SOURCE_DIR}/openssl/include"
-    ${CycloneDDS_INCLUDE_DIRS}
-    ${LIBOQS_INCLUDE_DIR}
-    ${OPENSSL_INCLUDE_DIR}
-)
-
-# Link libraries - use modern targets when available
-target_link_libraries(dds_pqsec
-    ${CYCLONEDDS_TARGET}  # This will be either CycloneDDS::ddsc or the library path
-    OpenSSL::SSL
-    OpenSSL::Crypto
-    ${LIBOQS_LIBRARY}
-    pthread                               # Add pthread for debug system
-)
-
-# ================================
-# COMPILE DEFINITIONS
-# ================================
-
-# Core definitions
-target_compile_definitions(dds_pqsec PRIVATE
-    SELECTED_KEM_ALGORITHM="${SELECTED_KEM_ALGORITHM}"
-    OQS_PROVIDER_NAME="${OQS_PROVIDER_NAME}"
-    MEASURE_HANDSHAKE_TIME=1
-    
-    # Ensure proper macro definitions
-    _GNU_SOURCE=1
-)
-
-# OpenSSL config
-if(OQS_OPENSSL_CONF)
-    target_compile_definitions(dds_pqsec PRIVATE
-        OQS_OPENSSL_CONF="${OQS_OPENSSL_CONF}"
-    )
-endif()
-
-# Post-quantum crypto
+find_package(Threads REQUIRED)
 if(ENABLE_PQ_CRYPTO)
-    target_compile_definitions(dds_pqsec PRIVATE PQ_CRYPTO)
-    message(STATUS "PQ_CRYPTO is enabled.")
+  # ML-DSA is part of OpenSSL's default provider beginning with OpenSSL 3.5.
+  find_package(OpenSSL 3.5 REQUIRED COMPONENTS Crypto SSL)
 else()
-    message(STATUS "PQ_CRYPTO is disabled.")
+  find_package(OpenSSL 3.0 REQUIRED COMPONENTS Crypto SSL)
 endif()
 
-# Legacy debug mode
+add_library(dds_pqsec SHARED
+  authentication.c
+  auth_algs.c
+  auth_utils.c
+  debug.c
+  openssl/src/openssl_support.c
+)
+
+if(ENABLE_PQ_CRYPTO)
+  target_sources(dds_pqsec PRIVATE pq_kem.c)
+endif()
+
+target_include_directories(dds_pqsec PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  "${CMAKE_CURRENT_SOURCE_DIR}/openssl/include"
+)
+
+target_link_libraries(dds_pqsec PRIVATE
+  CycloneDDS::ddsc
+  OpenSSL::SSL
+  OpenSSL::Crypto
+  Threads::Threads
+)
+target_compile_definitions(dds_pqsec PRIVATE
+  _POSIX_C_SOURCE=200809L
+  SELECTED_KEM_ALGORITHM="${SELECTED_KEM_ALGORITHM}"
+  PQSEC_FALLBACK_PROVIDER="${PQSEC_FALLBACK_PROVIDER}"
+  PQ_LOGGING_ENABLED=$<BOOL:${ENABLE_PQ_LOGGING}>
+  PQ_DEFAULT_LOG_LEVEL=${PQ_DEBUG_LEVEL_NUM}
+)
+if(ENABLE_PQ_CRYPTO)
+  target_compile_definitions(dds_pqsec PRIVATE PQ_CRYPTO=1)
+endif()
 if(DEBUG)
-    target_compile_definitions(dds_pqsec PRIVATE PLUGIN_DEBUG)
-    message(STATUS "Legacy debug mode is enabled.")
-else()
-    message(STATUS "Legacy debug mode is disabled.")
+  target_compile_definitions(dds_pqsec PRIVATE PLUGIN_DEBUG=1)
 endif()
 
-# Simple PQ debug system
-if(ENABLE_PQ_LOGGING)
-    target_compile_definitions(dds_pqsec PRIVATE
-        PQ_LOGGING_ENABLED=1
-        PQ_DEFAULT_LOG_LEVEL=${PQ_DEBUG_LEVEL_NUM}
-    )
-    message(STATUS "PQ-DDS logging enabled (default level: ${PQ_DEBUG_LEVEL})")
-else()
-    target_compile_definitions(dds_pqsec PRIVATE PQ_LOGGING_ENABLED=0)
-    message(STATUS "PQ-DDS logging disabled")
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(dds_pqsec PRIVATE
+    -Wall -Wextra -Wformat=2 -Wshadow
+    -Wstrict-prototypes -Wmissing-prototypes
+  )
 endif()
 
-# Add compiler warnings for unused functions and variables
-#if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID MATCHES "Clang")
-#    target_compile_options(dds_pqsec PRIVATE
-#        -Wunused-function
-#        -Wunused-variable  
-#        -Wunused-parameter
-#        -Wunused-but-set-variable
-#        -Wunreachable-code
-#        -Wall
-#        -Wextra
-#    )
-#    message(STATUS "Added unused function detection warnings")
-#endif()
-
-# Set library properties
 set_target_properties(dds_pqsec PROPERTIES
-    VERSION 1.0
-    SOVERSION 1
+  OUTPUT_NAME dds_pqsec
+  VERSION ${PROJECT_VERSION}
+  SOVERSION ${PROJECT_VERSION_MAJOR}
 )
 
-# Environment setup target
-add_custom_target(set_env
-    COMMAND ${CMAKE_COMMAND} -E echo "Setting environment variables for OQS provider:"
-    COMMAND ${CMAKE_COMMAND} -E echo "export OPENSSL_MODULES=${OQS_PROVIDER_PATH}/.local/lib64/ossl-modules"
-    COMMAND ${CMAKE_COMMAND} -E echo "export OPENSSL_CONF=${OQS_OPENSSL_CONF}"
-    COMMAND ${CMAKE_COMMAND} -E echo "export OQS_PROVIDER_NAME=${OQS_PROVIDER_NAME}"
-    COMMAND ${CMAKE_COMMAND} -E echo "export LD_LIBRARY_PATH=${OQS_PROVIDER_PATH}/.local/lib64:\$LD_LIBRARY_PATH"
-    COMMAND ${CMAKE_COMMAND} -E echo ""
-    COMMAND ${CMAKE_COMMAND} -E echo "Debug environment variables (optional):"
-    COMMAND ${CMAKE_COMMAND} -E echo "export PQ_DEBUG_LEVEL=${PQ_DEBUG_LEVEL}    # Override compile-time default"
-    COMMAND ${CMAKE_COMMAND} -E echo "export PQ_DEBUG_LEVEL=TRACE               # Set to TRACE level"
-    COMMAND ${CMAKE_COMMAND} -E echo "export PQ_DEBUG_LEVEL=INFO                # Set to INFO level"
-    COMMAND ${CMAKE_COMMAND} -E echo "export PQ_DEBUG_LEVEL=NONE                # Disable debug output"
-)
+if(BUILD_TESTING AND ENABLE_PQ_CRYPTO)
+  add_executable(pqsec_cyclonedds_kem_test
+    tests/pq_kem_test.c
+    auth_algs.c
+    pq_kem.c
+  )
+  target_include_directories(pqsec_cyclonedds_kem_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+  target_link_libraries(pqsec_cyclonedds_kem_test PRIVATE
+    CycloneDDS::ddsc OpenSSL::Crypto)
+  target_compile_definitions(pqsec_cyclonedds_kem_test PRIVATE
+    _POSIX_C_SOURCE=200809L
+    SELECTED_KEM_ALGORITHM="${SELECTED_KEM_ALGORITHM}")
+  if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(pqsec_cyclonedds_kem_test PRIVATE
+      -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME cyclonedds.pq_kem COMMAND pqsec_cyclonedds_kem_test)
 
-# Debug configuration summary
-add_custom_target(debug_info
-    COMMAND ${CMAKE_COMMAND} -E echo "═══ PQ-DDS Debug Configuration ═══"
-    COMMAND ${CMAKE_COMMAND} -E echo "Logging enabled: ${ENABLE_PQ_LOGGING}"
-    COMMAND ${CMAKE_COMMAND} -E echo "Default level: ${PQ_DEBUG_LEVEL} (${PQ_DEBUG_LEVEL_NUM})"
-    COMMAND ${CMAKE_COMMAND} -E echo ""
-    COMMAND ${CMAKE_COMMAND} -E echo "To change debug level at runtime:"
-    COMMAND ${CMAKE_COMMAND} -E echo "export PQ_DEBUG_LEVEL=TRACE"
-    COMMAND ${CMAKE_COMMAND} -E echo "export PQ_DEBUG_LEVEL=6      # or use numbers 0-5"
-    COMMAND ${CMAKE_COMMAND} -E echo ""
-    COMMAND ${CMAKE_COMMAND} -E echo "Debug levels (higher includes lower):"
-    COMMAND ${CMAKE_COMMAND} -E echo "  0=NONE  1=ERROR  2=WARN  3=INFO  4=TRACE  5=DATA"
-)
+  add_executable(pqsec_cyclonedds_signature_test tests/pq_signature_test.c)
+  target_include_directories(pqsec_cyclonedds_signature_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+  target_link_libraries(pqsec_cyclonedds_signature_test PRIVATE
+    dds_pqsec OpenSSL::Crypto CycloneDDS::ddsc)
+  target_compile_definitions(pqsec_cyclonedds_signature_test PRIVATE
+    _POSIX_C_SOURCE=200809L PQ_CRYPTO=1)
+  if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(pqsec_cyclonedds_signature_test PRIVATE
+      -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME cyclonedds.mldsa_transcript
+           COMMAND pqsec_cyclonedds_signature_test)
+endif()

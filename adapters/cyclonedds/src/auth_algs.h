@@ -5,7 +5,7 @@
  * auth_algs.h - Post-quantum authentication algorithms interface
  *
  * This authentication plugin implements Post-Quantum Cryptography algorithms
- * for DDS security via liboqs and OpenSSL oqs-provider. Based on CycloneDDS
+ * for DDS security through OpenSSL providers. Based on CycloneDDS
  * built-in authentication plugin and DDS Security specification v1.1.
  */
 
@@ -21,36 +21,37 @@
 // =============================================================================
 
 typedef enum {
-    AUTH_ALGO_KIND_UNKNOWN = 0,
+  AUTH_ALGO_KIND_UNKNOWN = 0,
 
-    // Classical algorithms
-    AUTH_ALGO_KIND_RSA_2048,
-    AUTH_ALGO_KIND_EC_PRIME256V1,
+  // Classical algorithms
+  AUTH_ALGO_KIND_RSA_2048,
+  AUTH_ALGO_KIND_EC_PRIME256V1,
 
-    // ML-KEM algorithms
-    AUTH_ALGO_KIND_ML_KEM_512,
-    AUTH_ALGO_KIND_ML_KEM_768,
-    AUTH_ALGO_KIND_ML_KEM_1024,
+  // ML-KEM algorithms
+  AUTH_ALGO_KIND_ML_KEM_512,
+  AUTH_ALGO_KIND_ML_KEM_768,
+  AUTH_ALGO_KIND_ML_KEM_1024,
 
-    // ML-DSA algorithms
-    AUTH_ALGO_KIND_ML_DSA_44,
-    AUTH_ALGO_KIND_ML_DSA_65,
-    AUTH_ALGO_KIND_ML_DSA_87,
+  // ML-DSA algorithms
+  AUTH_ALGO_KIND_ML_DSA_44,
+  AUTH_ALGO_KIND_ML_DSA_65,
+  AUTH_ALGO_KIND_ML_DSA_87,
 
-    // Hybrid algorithms (for future use)
-    AUTH_ALGO_KIND_X25519_ML_KEM_768,
-    AUTH_ALGO_KIND_P256_ML_KEM_768,
+  /* Native OpenSSL hybrid algorithms. */
+  AUTH_ALGO_KIND_X25519_ML_KEM_768,
+  AUTH_ALGO_KIND_P256_ML_KEM_768,
 
-    // Other PQ algorithms (for future use)
-    AUTH_ALGO_KIND_FRODO_640_SHAKE,
-    AUTH_ALGO_KIND_BIKE_L1
+  /* Experimental algorithms exposed through oqs-provider. */
+  AUTH_ALGO_KIND_FRODO_640_SHAKE,
+  AUTH_ALGO_KIND_BIKE_L1,
+  AUTH_ALGO_KIND_HQC_128
 } AuthenticationAlgoKind_t;
 
 typedef struct {
-    AuthenticationAlgoKind_t kind;
-    size_t public_key_size;
-    size_t secret_key_size;
-    size_t ciphertext_size;
+  AuthenticationAlgoKind_t kind;
+  size_t public_key_size;
+  size_t secret_key_size;
+  size_t ciphertext_size;
 } KemKeySizes;
 
 // =============================================================================

@@ -25,7 +25,10 @@ adapter even when the on-wire protocol is shared.
   ML-DSA-65, or ML-DSA-87.
 - Key establishment uses `X25519MLKEM768` by default.  This is OpenSSL 3.6's
   native TLS-style X25519 plus ML-KEM-768 hybrid KEM.  Pure ML-KEM-512,
-  ML-KEM-768, and ML-KEM-1024 are also defined.
+  ML-KEM-768, ML-KEM-1024, and `SecP256r1MLKEM768` are also defined.
+- Provider experiments may additionally identify `frodo640shake`, `bikel1`,
+  or `hqc128`. These names do not change the protocol: all operations still
+  pass through OpenSSL EVP, with liboqs isolated behind oqs-provider.
 - Credential hashes use SHA-256 over XCDR1 big-endian serialization.
 - Challenges are independent 256-bit random nonces.
 
@@ -37,13 +40,18 @@ identical.  There is no downgrade to PKI-DH.
 
 The request and reply carry the DDS Security credential fields `c.id`,
 `c.perm`, `c.pdata`, `c.dsign_algo`, and `c.kagree_algo` with their usual
-meanings.  The KEM fields are project-specific and therefore use the
-reverse-domain prefix required for custom DDS Security properties:
+meanings.  The KEM fields are project-specific and use the project's
+provisional prefix:
 
 ```
 pqsec-dds.kem_public
 pqsec-dds.kem_ciphertext
 ```
+
+This prefix is intentionally readable during experimentation, but it is not a
+reverse ICANN-domain name. A standards-strict stable release must replace both
+the class identifier and property prefix with a reverse domain controlled by
+the project.
 
 The credential hash includes a protocol and role domain separator followed by
 the five credential fields above in that order.  Each received certificate is

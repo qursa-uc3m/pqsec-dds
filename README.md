@@ -10,7 +10,7 @@ pqsec-dds/
   protocol/                 Shared experimental wire-protocol documents
   core/                     Future DDS-neutral OpenSSL core
   adapters/
-    cyclonedds/             Existing CycloneDDS plugin, unchanged
+    cyclonedds/             External CycloneDDS authentication plugin
     opendds/                External OpenDDS authentication plugin
   tests/
     vectors/                Shared protocol-vector area
@@ -26,12 +26,14 @@ and test vectors, but they cannot share one plugin binary.
 
 ### CycloneDDS
 
-The existing implementation and its directory structure have been moved
-without redesign to [adapters/cyclonedds](adapters/cyclonedds/README.md).
+The implementation has been cleaned up and retained at
+[adapters/cyclonedds](adapters/cyclonedds/README.md). Cryptographic operations
+use OpenSSL EVP: native OpenSSL providers for standardized algorithms and an
+optional oqs-provider fallback for experiments. Neither adapter calls liboqs
+directly.
 
 ```sh
 cd adapters/cyclonedds
-./scripts/build_oqs.sh
 ./scripts/build_cyclonedds.sh
 ./scripts/build_plugin.sh
 ```
@@ -54,7 +56,7 @@ ctest --test-dir adapters/opendds/build --output-on-failure
 ## Shared work
 
 The OpenDDS adapter currently implements its own crypto wrapper and transcript
-construction, and the CycloneDDS adapter remains unchanged.  Moving those
+construction. Moving those
 pieces into `core/` requires first aligning both adapters on the shared protocol
 and adding byte-for-byte vectors.  Cross-implementation interoperability is
 explicitly deferred to a future feature.
