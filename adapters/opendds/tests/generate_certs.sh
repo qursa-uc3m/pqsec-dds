@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+openssl=$1
+output=$2
+
+"$openssl" genpkey -algorithm ML-DSA-65 -out "$output/identity_ca_key.pem"
+"$openssl" req -new -x509 -key "$output/identity_ca_key.pem" \
+  -subj /CN=OpenDDS-PQSec-Test-CA -days 2 -out "$output/identity_ca_cert.pem"
+
+for participant in a b; do
+  "$openssl" genpkey -algorithm ML-DSA-65 -out "$output/participant_${participant}_key.pem"
+  "$openssl" req -new -key "$output/participant_${participant}_key.pem" \
+    -subj "/CN=OpenDDS-PQSec-Participant-${participant}" \
+    -out "$output/participant_${participant}.csr"
+  "$openssl" x509 -req -in "$output/participant_${participant}.csr" \
+    -CA "$output/identity_ca_cert.pem" -CAkey "$output/identity_ca_key.pem" \
+    -CAcreateserial -days 2 -out "$output/participant_${participant}_cert.pem"
+done
+
+"$openssl" verify -CAfile "$output/identity_ca_cert.pem" \
+  "$output/participant_a_cert.pem" "$output/participant_b_cert.pem"
