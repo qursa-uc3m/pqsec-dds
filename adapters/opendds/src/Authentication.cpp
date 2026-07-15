@@ -99,6 +99,16 @@ bool participant_data_has_guid(const DDS::OctetSeq& data, const OpenDDS::DCPS::G
   return false;
 }
 
+void assign_secret(DDS::OctetSeq& destination, std::vector<unsigned char>& source) {
+  if (destination.length())
+    OPENSSL_cleanse(destination.get_buffer(), destination.length());
+  destination.length(static_cast<CORBA::ULong>(source.size()));
+  if (!source.empty()) {
+    std::memcpy(destination.get_buffer(), &source[0], source.size());
+    OPENSSL_cleanse(&source[0], source.size());
+  }
+}
+
 class SharedSecret : public OpenDDS::DCPS::LocalObject<DDS::Security::SharedSecretHandle> {
 public:
   SharedSecret(const DDS::OctetSeq& challenge1, const DDS::OctetSeq& challenge2,
@@ -340,6 +350,10 @@ DDS::Security::ValidationResult_t Authentication::begin_handshake_request(
     DDS::Security::IdentityHandle initiator_handle, DDS::Security::IdentityHandle replier_handle,
     const DDS::OctetSeq& participant_data, DDS::Security::SecurityException& ex) {
   std::lock_guard<std::mutex> guard(mutex_);
+  if (handle != DDS::HANDLE_NIL) {
+    fail(ex, "PQSec handshake request requires a NIL output handle");
+    return DDS::Security::VALIDATION_FAILED;
+  }
   LocalPtr local_identity = local(initiator_handle);
   RemotePtr remote_identity = remote(replier_handle);
   if (!local_identity || !remote_identity || participant_data.length() == 0) {
@@ -386,8 +400,7 @@ DDS::Security::ValidationResult_t Authentication::begin_handshake_request(
   writer.add_bin_property(KEM_PUBLIC_PROPERTY, hs->public_key);
   writer.add_bin_property("challenge1", hs->challenge1);
   hs->request = message;
-  if (handle == DDS::HANDLE_NIL)
-    handle = next_handle();
+  handle = next_handle();
   handshakes_[handle] = hs;
   return DDS::Security::VALIDATION_PENDING_HANDSHAKE_MESSAGE;
 }
@@ -431,6 +444,10 @@ DDS::Security::ValidationResult_t Authentication::begin_handshake_reply(
     DDS::Security::IdentityHandle initiator_handle, DDS::Security::IdentityHandle replier_handle,
     const DDS::OctetSeq& participant_data, DDS::Security::SecurityException& ex) {
   std::lock_guard<std::mutex> guard(mutex_);
+  if (handle != DDS::HANDLE_NIL) {
+    fail(ex, "PQSec handshake reply requires a NIL output handle");
+    return DDS::Security::VALIDATION_FAILED;
+  }
   const DDS::Security::HandshakeMessageToken request = message;
   message = DDS::Security::Token();
   LocalPtr local_identity = local(replier_handle);
@@ -452,6 +469,10 @@ DDS::Security::ValidationResult_t Authentication::begin_handshake_reply(
   OpenDDS::Security::TokenReader request_reader(request);
   hs->challenge1 = request_reader.get_bin_property_value("challenge1");
   hs->public_key = request_reader.get_bin_property_value(KEM_PUBLIC_PROPERTY);
+  if (hs->challenge1.length() != 32) {
+    fail(ex, "PQSec request challenge must contain 256 bits");
+    return DDS::Security::VALIDATION_FAILED;
+  }
   if (remote_identity->remote_challenge.length() &&
       !equal(hs->challenge1, remote_identity->remote_challenge)) {
     fail(ex, "PQSec request challenge does not match AuthRequest");
@@ -466,9 +487,7 @@ DDS::Security::ValidationResult_t Authentication::begin_handshake_reply(
     return DDS::Security::VALIDATION_FAILED;
   }
   hs->ciphertext = octets(ciphertext);
-  hs->secret = octets(secret);
-  if (!secret.empty())
-    OPENSSL_cleanse(&secret[0], secret.size());
+  assign_secret(hs->secret, secret);
   if (remote_identity->local_auth_request_sent) {
     hs->challenge2 = remote_identity->local_challenge;
   } else if (OpenDDS::Security::SSL::make_nonce_256(hs->challenge2)) {
@@ -504,8 +523,7 @@ DDS::Security::ValidationResult_t Authentication::begin_handshake_reply(
   writer.add_bin_property("signature", signature);
   hs->reply = message;
   hs->state = DDS::Security::VALIDATION_PENDING_HANDSHAKE_MESSAGE;
-  if (handle == DDS::HANDLE_NIL)
-    handle = next_handle();
+  handle = next_handle();
   handshakes_[handle] = hs;
   return DDS::Security::VALIDATION_PENDING_HANDSHAKE_MESSAGE;
 }
@@ -521,17 +539,25 @@ DDS::Security::ValidationResult_t Authentication::process_handshake(
   }
   Handshake& hs = *pos->second;
   output = DDS::Security::Token();
+  if (hs.state != DDS::Security::VALIDATION_PENDING_HANDSHAKE_MESSAGE) {
+    fail(ex, "PQSec handshake is not awaiting a message");
+    return DDS::Security::VALIDATION_FAILED;
+  }
 
   if (hs.initiator && class_is(input, REPLY_CLASS_ID)) {
-    if (!validate_remote_credentials(hs, input, hs.hash2, ex))
+    if (!validate_remote_credentials(hs, input, hs.hash2, ex)) {
+      hs.state = DDS::Security::VALIDATION_FAILED;
       return DDS::Security::VALIDATION_FAILED;
+    }
     OpenDDS::Security::TokenReader reader(input);
     hs.challenge2 = reader.get_bin_property_value("challenge2");
     hs.ciphertext = reader.get_bin_property_value(KEM_CIPHERTEXT_PROPERTY);
-    if (!equal(reader.get_bin_property_value("challenge1"), hs.challenge1) ||
+    if (hs.challenge2.length() != 32 ||
+        !equal(reader.get_bin_property_value("challenge1"), hs.challenge1) ||
         (hs.remote->remote_challenge.length() &&
          !equal(hs.challenge2, hs.remote->remote_challenge))) {
       fail(ex, "PQSec reply challenge mismatch");
+      hs.state = DDS::Security::VALIDATION_FAILED;
       return DDS::Security::VALIDATION_FAILED;
     }
     DDS::BinaryPropertySeq reply_data = reply_transcript(hs.hash2, hs.challenge2, hs.ciphertext,
@@ -539,23 +565,26 @@ DDS::Security::ValidationResult_t Authentication::process_handshake(
     if (OpenDDS::Security::SSL::verify_serialized(reply_data, *hs.remote_certificate,
                                                   reader.get_bin_property_value("signature"))) {
       fail(ex, "ML-DSA reply signature verification failed");
+      hs.state = DDS::Security::VALIDATION_FAILED;
       return DDS::Security::VALIDATION_FAILED;
     }
     std::string error;
     std::vector<unsigned char> secret;
-    if (!hs.kem.decapsulate(bytes(hs.ciphertext), secret, error)) {
+    const bool decapsulated = hs.kem.decapsulate(bytes(hs.ciphertext), secret, error);
+    hs.kem.clear();
+    if (!decapsulated) {
       fail(ex, error);
+      hs.state = DDS::Security::VALIDATION_FAILED;
       return DDS::Security::VALIDATION_FAILED;
     }
-    hs.secret = octets(secret);
-    if (!secret.empty())
-      OPENSSL_cleanse(&secret[0], secret.size());
+    assign_secret(hs.secret, secret);
     DDS::BinaryPropertySeq final_data = final_transcript(hs.hash1, hs.challenge1, hs.public_key,
                                                          hs.challenge2, hs.ciphertext, hs.hash2);
     DDS::OctetSeq signature;
     if (OpenDDS::Security::SSL::sign_serialized(
             final_data, hs.local->credentials->get_participant_private_key(), signature)) {
       fail(ex, "ML-DSA final signature failed");
+      hs.state = DDS::Security::VALIDATION_FAILED;
       return DDS::Security::VALIDATION_FAILED;
     }
     OpenDDS::Security::TokenWriter writer(output, FINAL_CLASS_ID);
@@ -573,12 +602,14 @@ DDS::Security::ValidationResult_t Authentication::process_handshake(
         OpenDDS::Security::SSL::verify_serialized(final_data, *hs.remote_certificate,
                                                   reader.get_bin_property_value("signature"))) {
       fail(ex, "ML-DSA final signature verification failed");
+      hs.state = DDS::Security::VALIDATION_FAILED;
       return DDS::Security::VALIDATION_FAILED;
     }
     hs.state = DDS::Security::VALIDATION_OK;
     return hs.state;
   }
   fail(ex, "Unexpected PQSec handshake message");
+  hs.state = DDS::Security::VALIDATION_FAILED;
   return DDS::Security::VALIDATION_FAILED;
 }
 
@@ -619,6 +650,7 @@ CORBA::Boolean Authentication::set_listener(DDS::Security::AuthenticationListene
     fail(ex, "Null authentication listener");
     return false;
   }
+  std::lock_guard<std::mutex> guard(mutex_);
   listener_ = DDS::Security::AuthenticationListener::_duplicate(listener);
   return true;
 }

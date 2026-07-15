@@ -26,6 +26,13 @@ branch in an OpenDDS checkout.  That branch adds:
 These are generic OpenDDS changes.  No PQSec-specific library or protocol name is
 hard-coded in the fork.
 
+The adapter also consumes OpenDDS-internal C++ helpers, notably
+`SSL::Certificate`, `LocalAuthCredentialData`, and the security token utilities;
+these are not a stable external plugin ABI and may require adapter changes when
+OpenDDS changes them.  The external-loader changes and the digestless ML-DSA
+helper support should therefore be reviewed and upstreamed as separate OpenDDS
+changes before this adapter can build against an unmodified release.
+
 ## Protocol
 
 The complete experimental wire format is documented in
@@ -78,8 +85,10 @@ ctest --test-dir adapters/opendds/build --output-on-failure
 
 The tests cover all three native ML-KEM parameter sets, X25519MLKEM768, all three
 native ML-DSA parameter sets, a complete two-peer Authentication handshake using
-ML-DSA X.509 certificates and the hybrid KEM, shared-secret equality, and loading
-the plugin from an INI file without linking it into the test executable.
+ML-DSA X.509 certificates and the hybrid KEM, shared-secret equality, tampered
+signatures, KEM and challenge mismatches, certificates from an unrelated CA,
+replay rejection, and loading the plugin from an INI file without linking it
+into the test executable.
 
 ## Configuration
 
@@ -123,6 +132,14 @@ QoS property `pqsec-dds.provider` or environment variable
 module directory. The adapter never includes or links liboqs; liboqs is an
 implementation detail of oqs-provider. The provider must be built against the
 same OpenSSL installation as OpenDDS and this plugin.
+
+The provider name and module search path are trusted process configuration,
+like `LD_LIBRARY_PATH`: an attacker who can change them can select native code
+loaded into the process.
+
+The governance document must keep `allow_unauthenticated_participants` disabled.
+Built-in PKI-DH peers intentionally fail PQSec authentication; allowing them to
+remain in the domain would bypass the post-quantum authentication guarantee.
 
 ## Current boundaries
 

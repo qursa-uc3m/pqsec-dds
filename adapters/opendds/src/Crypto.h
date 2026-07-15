@@ -50,6 +50,10 @@ public:
   bool decapsulate(const std::vector<unsigned char>& ciphertext, std::vector<unsigned char>& secret,
                    std::string& error) const;
 
+  void clear() {
+    key_.reset();
+  }
+
   const std::string& algorithm() const {
     return algorithm_;
   }
