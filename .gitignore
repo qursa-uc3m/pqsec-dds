@@ -4,6 +4,8 @@
 # Cyclone DDS
 /cyclonedds/
 /cyclonedds_install/
+/adapters/cyclonedds/cyclonedds/
+/adapters/cyclonedds/cyclonedds_install/
 
 # Custom plugin
 build/
