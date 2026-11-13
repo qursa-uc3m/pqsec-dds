@@ -170,6 +170,9 @@ static DDS_Security_ValidationResult_t check_key_type_and_size(EVP_PKEY *key, in
     }
     return DDS_SECURITY_VALIDATION_OK;
   }
+  DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE,
+                             DDS_SECURITY_VALIDATION_FAILED, "%s must use an ML-DSA key", sub);
+  return DDS_SECURITY_VALIDATION_FAILED;
 #endif
 
   switch (EVP_PKEY_id(key)) {

@@ -8,10 +8,10 @@
         <Security>
             <Authentication>
                 <Library initFunction="init_authentication" finalizeFunction="finalize_authentication" path="dds_pqsec"/>
-                <!-- Traditional ECDSA P-256 certificates -->
-                <IdentityCA>file:./certs/traditional/ecdsa_p256_root_cert.pem</IdentityCA>
-                <IdentityCertificate>file:./certs/traditional/ecdsa_p256_entity_cert.pem</IdentityCertificate>
-                <PrivateKey>file:./certs/traditional/ecdsa_p256_entity_key.pem</PrivateKey>
+                <!-- ML-DSA-65 certificates; the plugin accepts only ML-DSA identities -->
+                <IdentityCA>file:./certs/mldsa/mldsa65_root_cert.pem</IdentityCA>
+                <IdentityCertificate>file:./certs/mldsa/mldsa65_entity_cert.pem</IdentityCertificate>
+                <PrivateKey>file:./certs/mldsa/mldsa65_entity_key.pem</PrivateKey>
                 <!-- Optional: Include CRL if you are using Certificate Revocation Lists -->
                 <!-- <CRL>file:/path/to/my_custom_crl.pem</CRL> -->
                 <!-- Optional: Include if your plugin requires a password for decrypting the private key -->

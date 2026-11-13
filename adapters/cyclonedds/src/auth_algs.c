@@ -22,9 +22,9 @@ static const AlgorithmInfo kem_algorithms[] = {
     {"mlkem1024", AUTH_ALGO_KIND_ML_KEM_1024, "ML-KEM-1024", "ML-KEM-1024"},
     {"x25519_mlkem768", AUTH_ALGO_KIND_X25519_ML_KEM_768, "X25519MLKEM768", "X25519MLKEM768"},
     {"p256_mlkem768", AUTH_ALGO_KIND_P256_ML_KEM_768, "SecP256r1MLKEM768", "SecP256r1MLKEM768"},
-    {"frodo640shake", AUTH_ALGO_KIND_FRODO_640_SHAKE, "frodo640shake", "FrodoKEM-640-SHAKE"},
-    {"bikel1", AUTH_ALGO_KIND_BIKE_L1, "bikel1", "BIKE-L1"},
-    {"hqc128", AUTH_ALGO_KIND_HQC_128, "hqc128", "HQC-128"},
+    {"frodo640shake", AUTH_ALGO_KIND_FRODO_640_SHAKE, "frodo640shake", "frodo640shake"},
+    {"bikel1", AUTH_ALGO_KIND_BIKE_L1, "bikel1", "bikel1"},
+    {"hqc128", AUTH_ALGO_KIND_HQC_128, "hqc128", "hqc128"},
     {NULL, AUTH_ALGO_KIND_UNKNOWN, NULL, NULL}};
 
 static const AlgorithmInfo signature_algorithms[] = {

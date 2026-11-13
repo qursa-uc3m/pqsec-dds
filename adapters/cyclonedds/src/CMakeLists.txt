@@ -62,6 +62,7 @@ add_library(dds_pqsec SHARED
   auth_algs.c
   auth_utils.c
   debug.c
+  transcript.c
   openssl/src/openssl_support.c
 )
 
@@ -140,4 +141,38 @@ if(BUILD_TESTING AND ENABLE_PQ_CRYPTO)
   endif()
   add_test(NAME cyclonedds.mldsa_transcript
            COMMAND pqsec_cyclonedds_signature_test)
+
+  add_executable(pqsec_cyclonedds_vector_test
+    tests/vector_test.c
+    transcript.c
+    auth_algs.c
+    pq_kem.c
+  )
+  target_include_directories(pqsec_cyclonedds_vector_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include")
+  target_link_libraries(pqsec_cyclonedds_vector_test PRIVATE
+    CycloneDDS::ddsc OpenSSL::Crypto)
+  target_compile_definitions(pqsec_cyclonedds_vector_test PRIVATE
+    _POSIX_C_SOURCE=200809L
+    SELECTED_KEM_ALGORITHM="${SELECTED_KEM_ALGORITHM}"
+    PQSEC_VECTORS_FILE="${CMAKE_CURRENT_SOURCE_DIR}/../../../tests/vectors/pqsec-auth-1.1.txt")
+  if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(pqsec_cyclonedds_vector_test PRIVATE
+      -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME cyclonedds.protocol_vectors COMMAND pqsec_cyclonedds_vector_test)
+
+  add_executable(pqsec_cyclonedds_handshake_test tests/handshake_test.c)
+  target_include_directories(pqsec_cyclonedds_handshake_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+  target_link_libraries(pqsec_cyclonedds_handshake_test PRIVATE
+    dds_pqsec OpenSSL::Crypto CycloneDDS::ddsc)
+  target_compile_definitions(pqsec_cyclonedds_handshake_test PRIVATE
+    _POSIX_C_SOURCE=200809L PQ_CRYPTO=1)
+  if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(pqsec_cyclonedds_handshake_test PRIVATE
+      -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME cyclonedds.handshake COMMAND pqsec_cyclonedds_handshake_test)
 endif()
