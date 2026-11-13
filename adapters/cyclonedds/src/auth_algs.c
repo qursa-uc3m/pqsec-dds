@@ -15,8 +15,6 @@ typedef struct {
 } AlgorithmInfo;
 
 static const AlgorithmInfo kem_algorithms[] = {
-    {"ecdh_p256", AUTH_ALGO_KIND_EC_PRIME256V1, "EC", "ECDH+prime256v1-CEUM"},
-    {"dh_2048", AUTH_ALGO_KIND_RSA_2048, "DH", "DH+MODP-2048-256"},
     {"mlkem512", AUTH_ALGO_KIND_ML_KEM_512, "ML-KEM-512", "ML-KEM-512"},
     {"mlkem768", AUTH_ALGO_KIND_ML_KEM_768, "ML-KEM-768", "ML-KEM-768"},
     {"mlkem1024", AUTH_ALGO_KIND_ML_KEM_1024, "ML-KEM-1024", "ML-KEM-1024"},
@@ -28,8 +26,6 @@ static const AlgorithmInfo kem_algorithms[] = {
     {NULL, AUTH_ALGO_KIND_UNKNOWN, NULL, NULL}};
 
 static const AlgorithmInfo signature_algorithms[] = {
-    {"rsa2048", AUTH_ALGO_KIND_RSA_2048, "RSA", "RSASSA-PSS-SHA256"},
-    {"ecdsa_p256", AUTH_ALGO_KIND_EC_PRIME256V1, "EC", "ECDSA-SHA256"},
     {"mldsa44", AUTH_ALGO_KIND_ML_DSA_44, "ML-DSA-44", "ML-DSA-44"},
     {"mldsa65", AUTH_ALGO_KIND_ML_DSA_65, "ML-DSA-65", "ML-DSA-65"},
     {"mldsa87", AUTH_ALGO_KIND_ML_DSA_87, "ML-DSA-87", "ML-DSA-87"},
@@ -93,10 +89,6 @@ AuthenticationAlgoKind_t get_authentication_algo_kind(X509 *certificate) {
     result = AUTH_ALGO_KIND_ML_DSA_65;
   } else if (EVP_PKEY_is_a(key, "ML-DSA-87") || EVP_PKEY_is_a(key, "MLDSA87")) {
     result = AUTH_ALGO_KIND_ML_DSA_87;
-  } else if (EVP_PKEY_is_a(key, "RSA") && EVP_PKEY_get_bits(key) == 2048) {
-    result = AUTH_ALGO_KIND_RSA_2048;
-  } else if (EVP_PKEY_is_a(key, "EC") && EVP_PKEY_get_bits(key) == 256) {
-    result = AUTH_ALGO_KIND_EC_PRIME256V1;
   }
 
   EVP_PKEY_free(key);
@@ -151,9 +143,7 @@ bool is_supported_kem_algorithm(const char *name) {
   return find_by_configuration_name(kem_algorithms, name) != NULL;
 }
 
-static const KemKeySizes kem_key_sizes[] = {{AUTH_ALGO_KIND_EC_PRIME256V1, 65, 32, 65},
-                                            {AUTH_ALGO_KIND_RSA_2048, 256, 256, 256},
-                                            {AUTH_ALGO_KIND_ML_KEM_512, 800, 1632, 768},
+static const KemKeySizes kem_key_sizes[] = {{AUTH_ALGO_KIND_ML_KEM_512, 800, 1632, 768},
                                             {AUTH_ALGO_KIND_ML_KEM_768, 1184, 2400, 1088},
                                             {AUTH_ALGO_KIND_ML_KEM_1024, 1568, 3168, 1568},
                                             {AUTH_ALGO_KIND_X25519_ML_KEM_768, 1216, 0, 1120},
