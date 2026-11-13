@@ -11,7 +11,7 @@ set -e  # Exit on any error
 
 # Default values - install locally for development
 INSTALL_DIR="./cyclonedds_install"
-VERSION="0.10.5"
+VERSION="11.1.0"
 BUILD_TYPE="Debug"
 PARALLEL_JOBS=$(nproc)
 
@@ -25,7 +25,7 @@ Usage: $0 [OPTIONS]
 
 OPTIONS:
     -p DIR              Installation directory (default: ./cyclonedds_install)
-    -v VERSION          CycloneDDS version (default: 0.10.5)
+    -v VERSION          CycloneDDS version (default: 11.1.0)
     -t TYPE             Build type: Debug|Release (default: Debug)
     -j JOBS             Parallel build jobs (default: $(nproc))
     -f                  Force clean rebuild
@@ -42,7 +42,7 @@ EXAMPLES:
     $0 -p /opt/cyclonedds
 
     # Release build with specific version
-    $0 -t Release -v 0.11.0
+    $0 -t Release -v 11.0.1
 
     # Force clean rebuild
     $0 -f
