@@ -3,6 +3,7 @@
  */
 
 #include "Authentication.h"
+#include "Crypto.h"
 #include "Transcript.h"
 
 #include <dds/DCPS/GuidUtils.h>
@@ -225,10 +226,74 @@ bool tampered_signature_test() {
                  DDS::Security::VALIDATION_FAILED,
              "tampered reply signature was accepted", exchange.initiator->exception))
     return false;
+  // OpenDDS keeps the handshake after a failed message, so the genuine reply
+  // must still be accepted.
+  return check(exchange.initiator->authentication.process_handshake(
+                   output, exchange.reply, exchange.initiator->handshake,
+                   exchange.initiator->exception) == VALIDATION_OK_FINAL_MESSAGE,
+               "a forged reply blocked the genuine one", exchange.initiator->exception);
+}
+
+// An attacker replaces the initiator's KEM public key with its own.  The
+// replier cannot notice, but the initiator signs and checks its own key.
+bool substituted_public_key_test() {
+  Exchange exchange;
+  if (!exchange.prepare_request())
+    return false;
+  OpenDDS_PQSec::Kem attacker("X25519MLKEM768");
+  std::vector<unsigned char> attacker_key;
+  std::string error;
+  DDS::OctetSeq* public_key = property(exchange.request, "pqsec-dds.kem_public");
+  if (!public_key || !attacker.generate(error) || !attacker.public_key(attacker_key, error))
+    return false;
+  *public_key = OpenDDS_PQSec::octets(attacker_key);
+  if (!exchange.prepare_reply())
+    return false;
+  DDS::Security::HandshakeMessageToken output;
   return check(exchange.initiator->authentication.process_handshake(
                    output, exchange.reply, exchange.initiator->handshake,
                    exchange.initiator->exception) == DDS::Security::VALIDATION_FAILED,
-               "failed handshake was retried into success", exchange.initiator->exception);
+               "reply to a substituted KEM public key was accepted", exchange.initiator->exception);
+}
+
+// An attacker replaces the ciphertext with a valid one of its own for the
+// initiator's key, so decapsulation alone would succeed.
+bool substituted_ciphertext_test() {
+  Exchange exchange;
+  if (!exchange.prepare_request() || !exchange.prepare_reply())
+    return false;
+  OpenDDS_PQSec::Kem attacker("X25519MLKEM768");
+  std::vector<unsigned char> ciphertext, secret;
+  std::string error;
+  DDS::OctetSeq* public_key = property(exchange.request, "pqsec-dds.kem_public");
+  DDS::OctetSeq* reply_ciphertext = property(exchange.reply, "pqsec-dds.kem_ciphertext");
+  if (!public_key || !reply_ciphertext ||
+      !attacker.import_public(OpenDDS_PQSec::bytes(*public_key), error) ||
+      !attacker.encapsulate(ciphertext, secret, error))
+    return false;
+  *reply_ciphertext = OpenDDS_PQSec::octets(ciphertext);
+  DDS::Security::HandshakeMessageToken output;
+  return check(exchange.initiator->authentication.process_handshake(
+                   output, exchange.reply, exchange.initiator->handshake,
+                   exchange.initiator->exception) == DDS::Security::VALIDATION_FAILED,
+               "substituted KEM ciphertext was accepted", exchange.initiator->exception);
+}
+
+// c.perm is checked by nothing but the credential hash, so a change to it is
+// only caught if the hash is signed.
+bool credential_binding_test() {
+  Exchange exchange;
+  if (!exchange.prepare_request() || !exchange.prepare_reply())
+    return false;
+  DDS::OctetSeq* permissions = property(exchange.reply, "c.perm");
+  if (!permissions)
+    return false;
+  set_string(*permissions, "<permissions>forged</permissions>");
+  DDS::Security::HandshakeMessageToken output;
+  return check(exchange.initiator->authentication.process_handshake(
+                   output, exchange.reply, exchange.initiator->handshake,
+                   exchange.initiator->exception) == DDS::Security::VALIDATION_FAILED,
+               "reply with altered permissions was accepted", exchange.initiator->exception);
 }
 
 bool algorithm_mismatch_test() {
@@ -333,11 +398,22 @@ bool different_ca_test() {
                "certificate from a different CA was accepted", replier->exception);
 }
 
+bool classical_ca_test() {
+  Participant participant(1, "ecca", "ec_ca_cert.pem");
+  return check(participant.authentication.validate_local_identity(
+                   participant.local, participant.adjusted, 0, participant.qos,
+                   participant.candidate,
+                   participant.exception) == DDS::Security::VALIDATION_FAILED,
+               "identity CA with a classical key was accepted", participant.exception);
+}
+
 } // namespace
 
 int main() {
-  return happy_path_and_replay_test() && tampered_signature_test() && algorithm_mismatch_test() &&
-                 challenge_length_tests() && different_ca_test()
+  return happy_path_and_replay_test() && tampered_signature_test() &&
+                 substituted_public_key_test() && substituted_ciphertext_test() &&
+                 credential_binding_test() && algorithm_mismatch_test() &&
+                 challenge_length_tests() && different_ca_test() && classical_ca_test()
              ? 0
              : 1;
 }

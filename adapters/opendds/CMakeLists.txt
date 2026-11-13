@@ -50,6 +50,14 @@ if(PQSEC_BUILD_TESTS)
   target_link_libraries(pqsec_crypto_test PRIVATE OpenDDS_PQSec OpenSSL::Crypto)
   add_test(NAME pqsec_crypto COMMAND pqsec_crypto_test)
 
+  add_executable(pqsec_vector_test tests/VectorTest.cpp)
+  target_compile_features(pqsec_vector_test PRIVATE cxx_std_11)
+  target_include_directories(pqsec_vector_test PRIVATE src)
+  target_compile_definitions(pqsec_vector_test PRIVATE
+    PQSEC_VECTORS_FILE="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/vectors/pqsec-auth-1.1.txt")
+  target_link_libraries(pqsec_vector_test PRIVATE OpenDDS_PQSec OpenSSL::Crypto)
+  add_test(NAME pqsec_protocol_vectors COMMAND pqsec_vector_test)
+
   find_program(PQSEC_OPENSSL_EXECUTABLE openssl
     HINTS "${OPENSSL_ROOT_DIR}/bin"
     NO_DEFAULT_PATH
@@ -83,7 +91,7 @@ if(PQSEC_BUILD_TESTS)
   set(PQSEC_TEST_LIBRARY_PATH
     "$<TARGET_FILE_DIR:OpenDDS_PQSec>:${OPENDDS_ROOT}/lib:${OPENDDS_ROOT}/ACE_wrappers/lib:$ENV{LD_LIBRARY_PATH}")
   set_tests_properties(
-    pqsec_crypto pqsec_authentication_handshake pqsec_external_loader
+    pqsec_crypto pqsec_protocol_vectors pqsec_authentication_handshake pqsec_external_loader
     PROPERTIES ENVIRONMENT "LD_LIBRARY_PATH=${PQSEC_TEST_LIBRARY_PATH}")
 
   set(PQSEC_PLUGIN_LIBRARY "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_SHARED_LIBRARY_PREFIX}OpenDDS_PQSec")

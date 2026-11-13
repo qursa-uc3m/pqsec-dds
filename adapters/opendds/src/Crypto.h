@@ -66,6 +66,11 @@ private:
 bool openssl_supports(const std::string& algorithm);
 std::string openssl_errors(const std::string& prefix);
 
+// HKDF-SHA-256 of the KEM secret, bound to the hash of the final transcript.
+bool derive_shared_secret(const std::vector<unsigned char>& kem_secret,
+                          const std::vector<unsigned char>& transcript_hash,
+                          std::vector<unsigned char>& result, std::string& error);
+
 } // namespace OpenDDS_PQSec
 
 #endif

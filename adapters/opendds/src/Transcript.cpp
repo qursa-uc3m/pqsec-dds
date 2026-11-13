@@ -13,7 +13,7 @@ namespace OpenDDS_PQSec {
 
 namespace {
 
-const char PROTOCOL[] = "pqsec-dds.auth:1.0";
+const char PROTOCOL[] = "pqsec-dds.auth:1.1";
 const char PROPERTY_PREFIX[] = "pqsec-dds.";
 
 void append_domain(DDS::BinaryPropertySeq& properties, const char* role) {

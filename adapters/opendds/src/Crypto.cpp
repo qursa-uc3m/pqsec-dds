@@ -6,6 +6,7 @@
 
 #include <openssl/core_names.h>
 #include <openssl/err.h>
+#include <openssl/kdf.h>
 #include <openssl/params.h>
 
 #include <sstream>
@@ -194,6 +195,37 @@ bool Kem::decapsulate(const std::vector<unsigned char>& ciphertext,
   }
   secret.resize(secret_size);
   return true;
+}
+
+bool derive_shared_secret(const std::vector<unsigned char>& kem_secret,
+                          const std::vector<unsigned char>& transcript_hash,
+                          std::vector<unsigned char>& result, std::string& error) {
+  static const char label[] = "pqsec-dds.auth:1.1 shared-secret";
+  if (kem_secret.empty() || transcript_hash.empty()) {
+    error = "KEM secret or transcript hash is missing";
+    return false;
+  }
+  std::vector<unsigned char> info(label, label + sizeof label - 1);
+  info.insert(info.end(), transcript_hash.begin(), transcript_hash.end());
+
+  char digest[] = "SHA256";
+  OSSL_PARAM parameters[] = {
+      OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST, digest, 0),
+      OSSL_PARAM_construct_octet_string(
+          OSSL_KDF_PARAM_KEY, const_cast<unsigned char*>(&kem_secret[0]), kem_secret.size()),
+      OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_INFO, &info[0], info.size()),
+      OSSL_PARAM_construct_end()};
+  EVP_KDF* kdf = EVP_KDF_fetch(0, "HKDF", 0);
+  EVP_KDF_CTX* context = kdf ? EVP_KDF_CTX_new(kdf) : 0;
+  EVP_KDF_free(kdf);
+  result.resize(32);
+  const bool ok = context && EVP_KDF_derive(context, &result[0], result.size(), parameters) == 1;
+  EVP_KDF_CTX_free(context);
+  if (!ok) {
+    result.clear();
+    error = openssl_errors("HKDF shared-secret derivation failed");
+  }
+  return ok;
 }
 
 } // namespace OpenDDS_PQSec
