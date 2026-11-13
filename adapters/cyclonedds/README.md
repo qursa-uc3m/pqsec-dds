@@ -1,8 +1,9 @@
 # PQSec-DDS for CycloneDDS
 
 This adapter is an external DDS Security Authentication plugin for CycloneDDS.
-It is based on CycloneDDS's built-in PKI-DH plugin, with an experimental
-post-quantum handshake identified as `pqsec-dds.auth:1.0`.
+It is based on CycloneDDS's built-in PKI-DH plugin, with the experimental
+post-quantum handshake [`pqsec-dds.auth:1.1`](../../protocol/pqsec-auth-v1.md)
+shared with the OpenDDS adapter.
 
 The implementation was originally developed by Javier Blanco-Romero and Adrián
 Serrano Navarro. Earlier experimental releases called liboqs directly. The
@@ -57,8 +58,9 @@ dependency of oqs-provider, not of this plugin.
 
 ## Certificates
 
-Identity certificates use native ML-DSA. Run `certs/generate_certs.sh` with an
-OpenSSL 3.5+ executable:
+Identity certificates and the identity CA must use native ML-DSA; the plugin
+rejects classical keys. Run `certs/generate_certs.sh` with an OpenSSL 3.5+
+executable:
 
 ```sh
 OPENSSL=/path/to/openssl certs/generate_certs.sh
@@ -67,7 +69,12 @@ OPENSSL=/path/to/openssl certs/generate_certs.sh
 ## Tests
 
 The CTest suite covers pure ML-KEM, native X25519/P-256 hybrid KEMs, malformed
-public-key rejection, and ML-DSA transcript signing and tamper rejection.
+public-key rejection, ML-DSA transcript signing and tamper rejection, and the
+shared protocol vectors. The handshake test drives two plugin instances through
+a complete handshake and checks that they derive the same secret, that a
+substituted KEM public key or ciphertext, altered credentials, a tampered Final
+and classical identities are rejected, and that a repeated Request is handled
+correctly.
 Experimental oqs-provider KEMs can be included explicitly:
 
 ```sh
@@ -76,8 +83,10 @@ PQSEC_TEST_OQS_PROVIDER=1 \
 ctest --test-dir build --output-on-failure
 ```
 
-Both peers must use the same plugin and KEM selection. Interoperability with the
-OpenDDS adapter is planned but is not yet claimed.
+Both peers must use the same KEM selection. The OpenDDS adapter implements the
+same protocol and passes the same vectors, but the two adapters have not yet
+been run against each other. Note that this adapter defaults to `mlkem768` and
+the OpenDDS adapter to `X25519MLKEM768`.
 
 ## Attribution
 
