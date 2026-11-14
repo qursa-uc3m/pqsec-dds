@@ -12,7 +12,6 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
-option(ENABLE_PQ_CRYPTO "Build the ML-KEM/ML-DSA authentication plugin" ON)
 option(ENABLE_PQ_LOGGING "Enable the adapter's diagnostic logging" OFF)
 option(DEBUG "Enable legacy plugin diagnostics" OFF)
 
@@ -31,7 +30,7 @@ set(_pq_kems
   x25519_mlkem768 p256_mlkem768
   frodo640shake bikel1 hqc128)
 list(FIND _pq_kems "${SELECTED_KEM_ALGORITHM}" _kem_index)
-if(ENABLE_PQ_CRYPTO AND _kem_index EQUAL -1)
+if(_kem_index EQUAL -1)
   message(FATAL_ERROR
     "${SELECTED_KEM_ALGORITHM} is not a supported OpenSSL KEM name. "
     "Choose one of: ${_pq_kems}")
@@ -50,24 +49,18 @@ if(CYCLONEDDS_PATH)
 endif()
 find_package(CycloneDDS REQUIRED)
 find_package(Threads REQUIRED)
-if(ENABLE_PQ_CRYPTO)
-  # ML-DSA is part of OpenSSL's default provider beginning with OpenSSL 3.5.
-  find_package(OpenSSL 3.5 REQUIRED COMPONENTS Crypto SSL)
-else()
-  find_package(OpenSSL 3.0 REQUIRED COMPONENTS Crypto SSL)
-endif()
+# ML-DSA is part of OpenSSL's default provider beginning with OpenSSL 3.5.
+find_package(OpenSSL 3.5 REQUIRED COMPONENTS Crypto SSL)
 
 add_library(dds_pqsec SHARED
   authentication.c
   auth_algs.c
   auth_utils.c
   debug.c
+  pq_kem.c
+  transcript.c
   openssl/src/openssl_support.c
 )
-
-if(ENABLE_PQ_CRYPTO)
-  target_sources(dds_pqsec PRIVATE pq_kem.c)
-endif()
 
 target_include_directories(dds_pqsec PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -88,9 +81,6 @@ target_compile_definitions(dds_pqsec PRIVATE
   PQ_LOGGING_ENABLED=$<BOOL:${ENABLE_PQ_LOGGING}>
   PQ_DEFAULT_LOG_LEVEL=${PQ_DEBUG_LEVEL_NUM}
 )
-if(ENABLE_PQ_CRYPTO)
-  target_compile_definitions(dds_pqsec PRIVATE PQ_CRYPTO=1)
-endif()
 if(DEBUG)
   target_compile_definitions(dds_pqsec PRIVATE PLUGIN_DEBUG=1)
 endif()
@@ -108,7 +98,7 @@ set_target_properties(dds_pqsec PROPERTIES
   SOVERSION ${PROJECT_VERSION_MAJOR}
 )
 
-if(BUILD_TESTING AND ENABLE_PQ_CRYPTO)
+if(BUILD_TESTING)
   add_executable(pqsec_cyclonedds_kem_test
     tests/pq_kem_test.c
     auth_algs.c
@@ -133,11 +123,45 @@ if(BUILD_TESTING AND ENABLE_PQ_CRYPTO)
   target_link_libraries(pqsec_cyclonedds_signature_test PRIVATE
     dds_pqsec OpenSSL::Crypto CycloneDDS::ddsc)
   target_compile_definitions(pqsec_cyclonedds_signature_test PRIVATE
-    _POSIX_C_SOURCE=200809L PQ_CRYPTO=1)
+    _POSIX_C_SOURCE=200809L)
   if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(pqsec_cyclonedds_signature_test PRIVATE
       -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME cyclonedds.mldsa_transcript
            COMMAND pqsec_cyclonedds_signature_test)
+
+  add_executable(pqsec_cyclonedds_vector_test
+    tests/vector_test.c
+    transcript.c
+    auth_algs.c
+    pq_kem.c
+  )
+  target_include_directories(pqsec_cyclonedds_vector_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include")
+  target_link_libraries(pqsec_cyclonedds_vector_test PRIVATE
+    CycloneDDS::ddsc OpenSSL::Crypto)
+  target_compile_definitions(pqsec_cyclonedds_vector_test PRIVATE
+    _POSIX_C_SOURCE=200809L
+    SELECTED_KEM_ALGORITHM="${SELECTED_KEM_ALGORITHM}"
+    PQSEC_VECTORS_FILE="${CMAKE_CURRENT_SOURCE_DIR}/../../../tests/vectors/pqsec-auth-1.1.txt")
+  if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(pqsec_cyclonedds_vector_test PRIVATE
+      -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME cyclonedds.protocol_vectors COMMAND pqsec_cyclonedds_vector_test)
+
+  add_executable(pqsec_cyclonedds_handshake_test tests/handshake_test.c)
+  target_include_directories(pqsec_cyclonedds_handshake_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+  target_link_libraries(pqsec_cyclonedds_handshake_test PRIVATE
+    dds_pqsec OpenSSL::Crypto CycloneDDS::ddsc)
+  target_compile_definitions(pqsec_cyclonedds_handshake_test PRIVATE
+    _POSIX_C_SOURCE=200809L)
+  if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(pqsec_cyclonedds_handshake_test PRIVATE
+      -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME cyclonedds.handshake COMMAND pqsec_cyclonedds_handshake_test)
 endif()

@@ -16,7 +16,6 @@ jobs=$(nproc)
 kem=mlkem768
 provider=oqsprovider
 debug_level=INFO
-enable_pq=ON
 clean=0
 
 usage() {
@@ -31,7 +30,6 @@ Usage: $0 [options]
   --kem NAME             KEM selection (default: mlkem768)
   --provider NAME        Fallback OpenSSL provider (default: oqsprovider)
   --debug-level LEVEL    NONE|ERROR|WARN|INFO|TRACE|DATA
-  --no-pq                Build the classical PKI-DH variant
   --clean                Remove the build directory before configuring
   -h, --help             Show this help
 
@@ -57,7 +55,6 @@ while (($#)); do
     --kem) kem=$2; shift 2 ;;
     --provider) provider=$2; shift 2 ;;
     --debug-level) debug_level=$2; shift 2 ;;
-    --no-pq) enable_pq=OFF; kem=ecdh_p256; shift ;;
     --clean) clean=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -76,7 +73,6 @@ fi
 cmake -S "$adapter_dir/src" -B "$build_dir" \
   -DCYCLONEDDS_PATH="$cyclonedds_path" \
   -DOPENSSL_ROOT_DIR="$openssl_root" \
-  -DENABLE_PQ_CRYPTO="$enable_pq" \
   -DSELECTED_KEM_ALGORITHM="$kem" \
   -DPQSEC_FALLBACK_PROVIDER="$provider" \
   -DPQ_DEBUG_LEVEL="$debug_level" \

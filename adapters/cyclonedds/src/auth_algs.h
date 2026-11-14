@@ -23,10 +23,6 @@
 typedef enum {
   AUTH_ALGO_KIND_UNKNOWN = 0,
 
-  // Classical algorithms
-  AUTH_ALGO_KIND_RSA_2048,
-  AUTH_ALGO_KIND_EC_PRIME256V1,
-
   // ML-KEM algorithms
   AUTH_ALGO_KIND_ML_KEM_512,
   AUTH_ALGO_KIND_ML_KEM_768,
@@ -60,11 +56,7 @@ typedef struct {
 
 // Default KEM algorithm if not specified at compile time
 #ifndef SELECTED_KEM_ALGORITHM
-#ifdef PQ_CRYPTO
 #define SELECTED_KEM_ALGORITHM "mlkem768"
-#else
-#define SELECTED_KEM_ALGORITHM "ecdh_p256"
-#endif
 #endif
 
 // =============================================================================

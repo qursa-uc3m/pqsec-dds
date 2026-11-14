@@ -1,3 +1,13 @@
+// Copyright(c) 2006 to 2021 ZettaScale Technology and others
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+
 /*
  * Copyright (C) 2023-2025 Javier Blanco-Romero @fj-blanco (UC3M)
  * Copyright (C) 2023 Adrián Serrano Navarro @100429115 (UC3M) - Initial PQ integration
@@ -101,27 +111,13 @@ AuthenticationChallenge *generate_challenge(DDS_Security_SecurityException *ex);
 DDS_Security_ValidationResult_t get_certificate_contents(X509 *cert, unsigned char **data,
                                                          uint32_t *size,
                                                          DDS_Security_SecurityException *ex);
-DDS_Security_ValidationResult_t generate_dh_keys(EVP_PKEY **dhkey,
-                                                 AuthenticationAlgoKind_t authKind,
-                                                 DDS_Security_SecurityException *ex);
-DDS_Security_ValidationResult_t dh_public_key_to_oct(EVP_PKEY *pkey, AuthenticationAlgoKind_t algo,
-                                                     unsigned char **buffer, uint32_t *length,
-                                                     DDS_Security_SecurityException *ex);
-DDS_Security_ValidationResult_t dh_oct_to_public_key(EVP_PKEY **data, AuthenticationAlgoKind_t algo,
-                                                     const unsigned char *str, uint32_t size,
-                                                     DDS_Security_SecurityException *ex);
 void free_ca_list_contents(X509Seq *ca_list);
 DDS_Security_ValidationResult_t get_trusted_ca_list(const char *trusted_ca_dir, X509Seq *ca_list,
                                                     OSSL_LIB_CTX *oqs_libctx,
                                                     DDS_Security_SecurityException *ex);
 char *string_from_data(const unsigned char *data, uint32_t size);
-DDS_Security_ValidationResult_t
-create_validate_asymmetrical_signature(bool create, EVP_PKEY *pkey, const unsigned char *data,
-                                       const size_t dataLen, unsigned char **signature,
-                                       size_t *signatureLen, DDS_Security_SecurityException *ex);
 
 /* PQ Crypto */
-#if defined(PQ_CRYPTO)
 DDS_Security_ValidationResult_t
 create_pq_signature(EVP_PKEY *pkey, const DDS_Security_BinaryProperty_t **binary_properties,
                     const uint32_t n_bprops, unsigned char **kem_signature,
@@ -142,7 +138,5 @@ DDS_Security_ValidationResult_t
 validate_kem_ciphertext_in_token(const DDS_Security_BinaryProperty_t *kem_ciphertext_prop,
                                  AuthenticationAlgoKind_t expected_kind,
                                  DDS_Security_SecurityException *ex);
-
-#endif /* PQ_CRYPTO */
 
 #endif /* AUTH_UTILS_H */

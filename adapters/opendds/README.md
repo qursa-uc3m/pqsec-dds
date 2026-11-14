@@ -39,7 +39,7 @@ The complete experimental wire format is documented in
 [the shared protocol directory](../../protocol/pqsec-auth-v1.md).
 
 The wire class identifier is
-`pqsec-dds.auth:1.0`.  It is an experimental extension, not
+`pqsec-dds.auth:1.1`.  It is an experimental extension, not
 the standard `DDS:Auth:PKI-DH:1.0` mechanism, so both peers must use this plugin.
 The project identifier avoids claiming an OMG-reserved `DDS:*` class identifier.
 It is provisional; a stable standards-strict release should replace it with a
@@ -48,15 +48,17 @@ prefix derived from an ICANN domain owned by the project.
 The request contains one ephemeral KEM public key.  The replier encapsulates once
 and returns the ciphertext.  With the default, OpenSSL performs the X25519 and
 ML-KEM-768 hybrid internally using its TLS hybrid implementation.  The reply and
-final messages carry ML-DSA
-signatures over the complete credential hashes, both challenges, the KEM public
-key, and ciphertext.  Signed material also includes a fixed protocol/version and
-message-role domain separator.  This gives explicit key confirmation in both
-directions without generating a redundant second KEM keypair.
+final messages carry ML-DSA signatures over both credential hashes, both
+challenges, the KEM public key, and the ciphertext, plus a fixed protocol and
+message-role separator.  Each side builds the signed data from its own state.
+This authenticates both peers and the key exchange; it does not prove that the
+peer holds the shared secret, which first shows when the cryptographic plugin
+exchanges its tokens.
 
-The resulting KEM secret and both challenges are returned through the standard
-DDS Security `SharedSecretHandle`.  OpenDDS's built-in cryptographic
-plugin then performs the normal DDS Security key derivation and RTPS protection.
+The shared secret is HKDF-SHA-256 over the KEM output, bound to a hash of the
+final transcript.  It is returned with both challenges through the standard
+DDS Security `SharedSecretHandle`, and OpenDDS's built-in cryptographic plugin
+then performs the normal DDS Security key derivation and RTPS protection.
 
 ## Build and test
 
@@ -84,11 +86,12 @@ ctest --test-dir adapters/opendds/build --output-on-failure
 ```
 
 The tests cover all three native ML-KEM parameter sets, X25519MLKEM768, all three
-native ML-DSA parameter sets, a complete two-peer Authentication handshake using
-ML-DSA X.509 certificates and the hybrid KEM, shared-secret equality, tampered
-signatures, KEM and challenge mismatches, certificates from an unrelated CA,
-replay rejection, and loading the plugin from an INI file without linking it
-into the test executable.
+native ML-DSA parameter sets, the shared protocol vectors, a complete two-peer
+Authentication handshake using ML-DSA X.509 certificates and the hybrid KEM,
+shared-secret equality, tampered signatures, a substituted KEM public key or
+ciphertext, altered credentials, KEM and challenge mismatches, certificates from
+an unrelated CA, a classical identity CA, replay rejection, and loading the
+plugin from an INI file without linking it into the test executable.
 
 ## Configuration
 
@@ -112,8 +115,8 @@ UtilityConfig=BuiltIn
 
 Configure the ordinary DDS Security certificate, permissions, and governance QoS
 properties on each participant.  The identity certificate and its private key
-must use the same ML-DSA parameter set; the identity CA only needs to form a chain
-accepted by OpenSSL.  The permissions CA and signed governance/permissions
+must use the same ML-DSA parameter set, and the identity CA must also use
+ML-DSA.  The permissions CA and signed governance/permissions
 documents can continue to use an algorithm supported by OpenDDS's built-in Access
 Control plugin.
 
@@ -145,8 +148,8 @@ remain in the domain would bypass the post-quantum authentication guarantee.
 
 - There is no negotiation or downgrade to PKI-DH.  Mixed built-in/PQSec peers do
   not authenticate.
-- The protocol identifier and transcript layout need a shared specification
-  before interoperability with a CycloneDDS implementation can be claimed.
+- The CycloneDDS adapter implements the same protocol and passes the same
+  vectors, but the two have not yet been run against each other.
 - The implementation uses pure ML-DSA, not the pre-hash variants, and buffers the
   serialized transcript because OpenSSL exposes pure ML-DSA as a one-shot
   signature operation.

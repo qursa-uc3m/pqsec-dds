@@ -55,11 +55,10 @@ ctest --test-dir adapters/opendds/build --output-on-failure
 
 ## Shared work
 
-The OpenDDS adapter currently implements its own crypto wrapper and transcript
-construction. Moving those
-pieces into `core/` requires first aligning both adapters on the shared protocol
-and adding byte-for-byte vectors.  Cross-implementation interoperability is
-explicitly deferred to a future feature.
+Both adapters implement [protocol 1.1](protocol/pqsec-auth-v1.md) and test
+against the same byte-for-byte [vectors](tests/vectors).  Each still has its
+own crypto wrapper and transcript code; moving those into `core/` is future
+work, as is running the two adapters against each other.
 
 ## License
 

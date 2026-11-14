@@ -85,8 +85,9 @@ private:
   CORBA::Long next_handle();
   LocalPtr local(DDS::Security::IdentityHandle) const;
   RemotePtr remote(DDS::Security::IdentityHandle) const;
-  bool validate_remote_credentials(Handshake&, const DDS::Security::Token&, DDS::OctetSeq&,
-                                   DDS::Security::SecurityException&);
+  bool validate_remote_credentials(const Handshake&, const DDS::Security::Token&, DDS::OctetSeq&,
+                                   std::unique_ptr<OpenDDS::Security::SSL::Certificate>&,
+                                   DDS::OctetSeq&, DDS::Security::SecurityException&);
 
   // Declared first so the provider remains loaded until all EVP keys are gone.
   ProviderFallback fallback_provider_;

@@ -13,11 +13,15 @@
 #define DDS_SECURITY_AUTH_TOKENS_H
 
 // IdentityToken
-#define DDS_AUTHTOKEN_CLASS_ID "pqsec-dds.auth:1.0"
+#define DDS_AUTHTOKEN_CLASS_ID "pqsec-dds.auth:1.1"
 #define DDS_AUTHTOKEN_PROP_CERT_SN "dds.cert.sn"
 #define DDS_AUTHTOKEN_PROP_CERT_ALGO "dds.cert.algo"
 #define DDS_AUTHTOKEN_PROP_CA_SN "dds.ca.sn"
 #define DDS_AUTHTOKEN_PROP_CA_ALGO "dds.ca.algo"
+
+// Domain separators in hashed and signed data
+#define DDS_AUTHTOKEN_PROP_PROTOCOL "pqsec-dds.protocol"
+#define DDS_AUTHTOKEN_PROP_ROLE "pqsec-dds.role"
 
 // IdentityStatusToken
 // #define DDS_AUTHTOKEN_CLASS_ID "DDS:Auth:PKI-DH:1.0"

@@ -37,3 +37,13 @@ done
 # Copyright (C) 2023-2026 Javier Blanco-Romero @fj-blanco (UC3M)
 # Copyright (C) 2023 Adrián Serrano Navarro @100429115 (UC3M)
 # SPDX-License-Identifier: Apache-2.0
+
+"$openssl" genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$output/ec_ca_key.pem"
+"$openssl" req -new -x509 -key "$output/ec_ca_key.pem" \
+  -subj /CN=OpenDDS-PQSec-EC-Test-CA -days 2 -out "$output/ec_ca_cert.pem"
+"$openssl" genpkey -algorithm ML-DSA-65 -out "$output/participant_ecca_key.pem"
+"$openssl" req -new -key "$output/participant_ecca_key.pem" \
+  -subj /CN=OpenDDS-PQSec-EC-CA-Participant -out "$output/participant_ecca.csr"
+"$openssl" x509 -req -in "$output/participant_ecca.csr" \
+  -CA "$output/ec_ca_cert.pem" -CAkey "$output/ec_ca_key.pem" \
+  -CAcreateserial -days 2 -out "$output/participant_ecca_cert.pem"
