@@ -1,0 +1,7 @@
+module Interop {
+  @topic @final
+  struct Msg {
+    @key long id;
+    string text;
+  };
+};

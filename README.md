@@ -14,7 +14,7 @@ pqsec-dds/
     opendds/                External OpenDDS authentication plugin
   tests/
     vectors/                Shared protocol-vector area
-    interoperability/       Reserved for future cross-DDS tests
+    interoperability/       CycloneDDS against OpenDDS
 ```
 
 The adapters are separate because CycloneDDS exposes a C plugin ABI while

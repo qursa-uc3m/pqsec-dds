@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- CycloneDDS participant of run.sh. Unicast discovery on the loopback
+     interface; the variables are set by run.sh. -->
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain id="any">
+    <General>
+      <Interfaces><NetworkInterface name="lo"/></Interfaces>
+      <AllowMulticast>false</AllowMulticast>
+      <MaxMessageSize>${PQSEC_MAX_MESSAGE:-14720B}</MaxMessageSize>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <Peers><Peer address="127.0.0.1"/></Peers>
+    </Discovery>
+    <Tracing>
+      <Verbosity>finest</Verbosity>
+      <OutputFile>${PQSEC_TRACE}</OutputFile>
+    </Tracing>
+    <Security>
+      <Authentication>
+        <Library path="${PQSEC_CYCLONEDDS_LIB}" initFunction="init_authentication"
+                 finalizeFunction="finalize_authentication"/>
+        <IdentityCA>file:${PQSEC_SECURITY}/identity_ca.pem</IdentityCA>
+        <IdentityCertificate>file:${PQSEC_SECURITY}/${PQSEC_IDENTITY}_cert.pem</IdentityCertificate>
+        <PrivateKey>file:${PQSEC_SECURITY}/${PQSEC_IDENTITY}_key.pem</PrivateKey>
+      </Authentication>
+      <AccessControl>
+        <Library path="dds_security_ac" initFunction="init_access_control"
+                 finalizeFunction="finalize_access_control"/>
+        <PermissionsCA>file:${PQSEC_SECURITY}/permissions_ca.pem</PermissionsCA>
+        <Governance>file:${PQSEC_SECURITY}/governance.p7s</Governance>
+        <Permissions>file:${PQSEC_SECURITY}/permissions.p7s</Permissions>
+      </AccessControl>
+      <Cryptographic>
+        <Library path="dds_security_crypto" initFunction="init_crypto"
+                 finalizeFunction="finalize_crypto"/>
+      </Cryptographic>
+    </Security>
+  </Domain>
+</CycloneDDS>
