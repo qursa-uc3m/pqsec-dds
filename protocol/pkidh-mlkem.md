@@ -21,6 +21,9 @@ Add to Table 25:
 The public key is carried in an X.509 certificate as in RFC 9881. The
 signature in a `signature` property is the FIPS 204 signature encoding.
 
+`pkidh-mlkem-sizes.md` explains why these two rows and no others: ML-DSA-44,
+SLH-DSA, FN-DSA and the composite signatures were measured against them.
+
 ## 8.3 Key establishment algorithms
 
 Add to Table 26:
@@ -34,7 +37,10 @@ Add to Table 26:
 The ids and bits are in the vendor ranges of 7.3.7 and 7.3.8 and are
 provisional. Vendor-range bits are interpreted per RTPS vendor ID, so they
 cannot negotiate between two vendors. Interoperable use needs the RTF to
-assign values in the specification ranges.
+assign values in the specification ranges. The CycloneDDS and OpenDDS
+adapters authenticate each other without the 1.2 negotiation; with it,
+OpenDDS rightly refuses the CycloneDDS participant before the handshake
+(`tests/interoperability`).
 
 ML-KEM-768 and ML-DSA-65 sit at the level of the P-256 rows; ML-KEM-1024 and
 ML-DSA-87 at the level of the P-384 rows that 1.2 added for CNSA.
@@ -73,6 +79,9 @@ implicit for Diffie-Hellman.
    `dh1`, `dh2`, `hash_c1` and `hash_c2`: the ones it generated, or the ones it
    received in the message that defines them. An echoed copy in a later
    token, if present, must equal the local one and is never used as input.
+   Since echoes carry no information, a Reply should not repeat `hash_c1`
+   or `dh1`, and a Final should not repeat `hash_c1`, `hash_c2`, `dh1` or
+   `dh2`. With `X25519MLKEM768` they would add 3.7 KB to a handshake.
 3. **Ciphertext lifetime.** A ciphertext belongs to one Request. A Request
    with the same `hash_c1`, `challenge1` and `dh1` as the pending attempt is a
    retransmission and gets the same Reply. Any other Request gets a new
@@ -102,9 +111,22 @@ rejected.
 <xs:enumeration value="X25519MLKEM768" />
 ```
 
+10.4.1.2 and 10.4.1.5 have the Permissions CA sign the governance and
+permissions documents as S/MIME 3.2 SignedData, which is CMS. With an ML-DSA
+Permissions CA the signature follows RFC 9882. (OpenSSL's PKCS#7 functions
+cannot produce or check it; its CMS functions can.)
+
+Both sections also require the signer certificate inside the signature.
+Every participant has the Permissions CA configured and does not need it,
+and with ML-DSA-65 it adds 7.5 KB to each Request and Reply. The sentence
+"Additionally, the signer certificate shall be included within the
+signature" becomes "The signer certificate should not be included within the
+signature". The CycloneDDS and OpenDDS plugins already accept documents
+without it.
+
 ## Open questions
 
-These are checked by the formal model in `formal/`, not settled here.
+Q1 and Q2 are checked by the formal model in `formal/`, not settled here.
 
 - **Q1.** Is `SharedSecret = SHA-256(secret)` enough, or must the derivation
   also cover the transcript? For `X25519MLKEM768` this matters most: the TLS
@@ -117,6 +139,11 @@ These are checked by the formal model in `formal/`, not settled here.
 - **Q2.** Is the algorithm choice protected against downgrade? The algorithm
   info travels in discovery unauthenticated and again inside `c.pdata`,
   which is hashed and signed. 1.2 does not require comparing the two.
+- **Q3.** Should the profile add a composite signature, ML-DSA-65 with
+  ECDSA-P256 as `MLDSA65-ECDSA-P256-SHA512` of RFC 10073? European
+  guidance asks for ML-DSA to be combined with a classical signature, and
+  the composite costs 2% more than ML-DSA-65 alone. No OpenSSL release
+  implements it yet, so neither adapter could test it today.
 
 ## Vectors
 
