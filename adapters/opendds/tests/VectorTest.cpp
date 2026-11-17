@@ -51,23 +51,53 @@ Bytes serialize(const DDS::BinaryPropertySeq& properties) {
   return Bytes(buffer.rd_ptr(), buffer.rd_ptr() + buffer.length());
 }
 
-bool credential_hash(Vectors& vectors, const std::string& prefix, Bytes& result) {
+bool credential_hash(Vectors& vectors, const std::string& algorithm, const std::string& party,
+                     Bytes& result) {
   DDS::OctetSeq hash;
-  if (OpenDDS_PQSec::credential_hash(OpenDDS_PQSec::octets(vectors[prefix + ".id"]),
-                                     OpenDDS_PQSec::octets(vectors[prefix + ".perm"]),
-                                     OpenDDS_PQSec::octets(vectors[prefix + ".pdata"]),
-                                     text(vectors[prefix + ".dsign_algo"]),
-                                     text(vectors[prefix + ".kagree_algo"]), hash))
+  if (OpenDDS_PQSec::credential_hash(OpenDDS_PQSec::octets(vectors[party + ".id"]),
+                                     OpenDDS_PQSec::octets(vectors[party + ".perm"]),
+                                     OpenDDS_PQSec::octets(vectors[party + ".pdata"]),
+                                     text(vectors[algorithm + ".dsign_algo"]),
+                                     text(vectors[algorithm + ".kagree_algo"]), hash))
     return false;
   result = OpenDDS_PQSec::bytes(hash);
   return true;
 }
 
-bool expect(Vectors& vectors, const char* name, const Bytes& actual) {
+bool expect(Vectors& vectors, const std::string& name, const Bytes& actual) {
   if (actual == vectors[name])
     return true;
   std::cerr << name << " does not match the protocol vector\n";
   return false;
+}
+
+bool check(Vectors& vectors, const std::string& algorithm) {
+  const std::string prefix = algorithm + ".";
+  if (vectors[prefix + "dh1"].empty()) {
+    std::cerr << "No vectors for " << algorithm << '\n';
+    return false;
+  }
+  Bytes hash_c1, hash_c2;
+  if (!credential_hash(vectors, algorithm, "c1", hash_c1) ||
+      !credential_hash(vectors, algorithm, "c2", hash_c2) ||
+      !expect(vectors, prefix + "hash_c1", hash_c1) ||
+      !expect(vectors, prefix + "hash_c2", hash_c2))
+    return false;
+
+  const DDS::OctetSeq challenge1 = OpenDDS_PQSec::octets(vectors["challenge1"]);
+  const DDS::OctetSeq challenge2 = OpenDDS_PQSec::octets(vectors["challenge2"]);
+  const DDS::OctetSeq dh1 = OpenDDS_PQSec::octets(vectors[prefix + "dh1"]);
+  const DDS::OctetSeq dh2 = OpenDDS_PQSec::octets(vectors[prefix + "dh2"]);
+  const DDS::BinaryPropertySeq reply =
+      OpenDDS_PQSec::reply_transcript(OpenDDS_PQSec::octets(hash_c2), challenge2, dh2, challenge1,
+                                      dh1, OpenDDS_PQSec::octets(hash_c1));
+  const DDS::BinaryPropertySeq final_data =
+      OpenDDS_PQSec::final_transcript(OpenDDS_PQSec::octets(hash_c1), challenge1, dh1, challenge2,
+                                      dh2, OpenDDS_PQSec::octets(hash_c2));
+  Bytes secret = vectors[prefix + "secret"];
+  return expect(vectors, prefix + "reply_transcript", serialize(reply)) &&
+         expect(vectors, prefix + "final_transcript", serialize(final_data)) &&
+         expect(vectors, prefix + "shared_secret", OpenDDS_PQSec::shared_secret(secret));
 }
 
 } // namespace
@@ -78,36 +108,8 @@ int main() {
     std::cerr << "Cannot read " << PQSEC_VECTORS_FILE << '\n';
     return 1;
   }
-
-  Bytes hash_c1, hash_c2;
-  if (!credential_hash(vectors, "c1", hash_c1) || !credential_hash(vectors, "c2", hash_c2) ||
-      !expect(vectors, "hash_c1", hash_c1) || !expect(vectors, "hash_c2", hash_c2))
-    return 1;
-
-  const DDS::OctetSeq challenge1 = OpenDDS_PQSec::octets(vectors["challenge1"]);
-  const DDS::OctetSeq challenge2 = OpenDDS_PQSec::octets(vectors["challenge2"]);
-  const DDS::OctetSeq public_key = OpenDDS_PQSec::octets(vectors["kem_public"]);
-  const DDS::OctetSeq ciphertext = OpenDDS_PQSec::octets(vectors["kem_ciphertext"]);
-  const DDS::BinaryPropertySeq reply =
-      OpenDDS_PQSec::reply_transcript(OpenDDS_PQSec::octets(hash_c2), challenge2, ciphertext,
-                                      challenge1, public_key, OpenDDS_PQSec::octets(hash_c1));
-  const DDS::BinaryPropertySeq final_data =
-      OpenDDS_PQSec::final_transcript(OpenDDS_PQSec::octets(hash_c1), challenge1, public_key,
-                                      challenge2, ciphertext, OpenDDS_PQSec::octets(hash_c2));
-  if (!expect(vectors, "reply_transcript", serialize(reply)) ||
-      !expect(vectors, "final_transcript", serialize(final_data)))
-    return 1;
-
-  DDS::OctetSeq transcript_hash;
-  Bytes shared_secret;
-  std::string error;
-  if (OpenDDS::Security::SSL::hash_serialized(final_data, transcript_hash) ||
-      !expect(vectors, "transcript_hash", OpenDDS_PQSec::bytes(transcript_hash)) ||
-      !OpenDDS_PQSec::derive_shared_secret(
-          vectors["kem_secret"], OpenDDS_PQSec::bytes(transcript_hash), shared_secret, error) ||
-      !expect(vectors, "shared_secret", shared_secret)) {
-    std::cerr << error;
-    return 1;
-  }
-  return 0;
+  return check(vectors, "ML-KEM-768") && check(vectors, "ML-KEM-1024") &&
+                 check(vectors, "X25519MLKEM768")
+             ? 0
+             : 1;
 }

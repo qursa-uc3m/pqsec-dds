@@ -37,30 +37,21 @@ changes before this adapter can build against an unmodified release.
 
 ## Protocol
 
-The complete experimental wire format is documented in
-[the shared protocol directory](../../protocol/pqsec-auth-v1.md).
+The plugin implements DDS:Auth:PKI-DH of DDS Security 1.2 with ML-KEM and
+ML-DSA as additional algorithms, as described in
+[protocol/pkidh-mlkem.md](../../protocol/pkidh-mlkem.md). Tokens, class ids
+(`DDS:Auth:PKI-DH:1.0+Req` and so on), properties and signed transcripts are
+those of PKI-DH. The key establishment properties carry the KEM values: `dh1`
+is the initiator's encapsulation key and `dh2` the replier's ciphertext.
+`SharedSecret` is SHA-256 of the KEM secret, and OpenDDS's built-in
+Cryptographic plugin derives its keys from it as for PKI-DH.
 
-The wire class identifier is
-`pqsec-dds.auth:1.1`.  It is an experimental extension, not
-the standard `DDS:Auth:PKI-DH:1.0` mechanism, so both peers must use this plugin.
-The project identifier avoids claiming an OMG-reserved `DDS:*` class identifier.
-It is provisional; a stable standards-strict release should replace it with a
-prefix derived from an ICANN domain owned by the project.
+The initiator chooses the KEM. The replier accepts any of the three and
+answers with the same one. A classical algorithm in `c.kagree_algo` is
+refused, so a classical PKI-DH peer does not authenticate with this plugin.
 
-The request contains one ephemeral KEM public key.  The replier encapsulates once
-and returns the ciphertext.  With the default, OpenSSL performs the X25519 and
-ML-KEM-768 hybrid internally using its TLS hybrid implementation.  The reply and
-final messages carry ML-DSA signatures over both credential hashes, both
-challenges, the KEM public key, and the ciphertext, plus a fixed protocol and
-message-role separator.  Each side builds the signed data from its own state.
-This authenticates both peers and the key exchange; it does not prove that the
-peer holds the shared secret, which first shows when the cryptographic plugin
-exchanges its tokens.
-
-The shared secret is HKDF-SHA-256 over the KEM output, bound to a hash of the
-final transcript.  It is returned with both challenges through the standard
-DDS Security `SharedSecretHandle`, and OpenDDS's built-in cryptographic plugin
-then performs the normal DDS Security key derivation and RTPS protection.
+Optional echoes of `dh1`, `dh2`, `hash_c1` and `hash_c2` are not sent. If a
+peer sends them, they must equal the local values, which are the ones used.
 
 ## Build and test
 
@@ -89,9 +80,10 @@ ctest --test-dir adapters/opendds/build --output-on-failure
 
 The tests cover the three KEMs and two ML-DSA parameter sets above, OpenSSL's
 rejection of invalid encapsulation keys and hybrid X25519 shares, the shared protocol vectors, a complete two-peer
-Authentication handshake using ML-DSA X.509 certificates and the hybrid KEM,
-shared-secret equality, tampered signatures, a substituted KEM public key or
-ciphertext, altered credentials, KEM and challenge mismatches, certificates from
+Authentication handshake using ML-DSA X.509 certificates for each KEM,
+shared-secret equality, tampered signatures, a substituted `dh1` or `dh2`,
+altered credentials, the initiator's choice of KEM, classical or mismatched
+algorithms, echoes that differ from the local value, challenge mismatches, certificates from
 an unrelated CA, a classical identity CA, replay rejection, and loading the
 plugin from an INI file without linking it into the test executable.
 
@@ -123,21 +115,21 @@ documents can continue to use an algorithm supported by OpenDDS's built-in Acces
 Control plugin.
 
 The optional participant QoS property
-`pqsec-dds.kem` selects `X25519MLKEM768` (the default), `ML-KEM-768` or
-`ML-KEM-1024`. `X25519MLKEM768` is OpenSSL's native TLS-style hybrid KEM and
-combines X25519 with ML-KEM-768 inside the provider.  Both peers must select
-the same value; mismatches fail closed.
+`dds.sec.auth.key_establishment_algorithm` (DDS Security 1.2, 10.3.1.4)
+selects the KEM this participant uses when it initiates: `X25519MLKEM768`,
+`ML-KEM-768` or `ML-KEM-1024`. `AUTO`, or no property, means
+`X25519MLKEM768`. `X25519MLKEM768` is OpenSSL's native TLS-style hybrid KEM
+and combines X25519 with ML-KEM-768 inside the provider.
 
 The governance document must keep `allow_unauthenticated_participants` disabled.
-Built-in PKI-DH peers intentionally fail PQSec authentication; allowing them to
+Classical PKI-DH peers fail authentication with this plugin; allowing them to
 remain in the domain would bypass the post-quantum authentication guarantee.
 
 ## Current boundaries
 
-- There is no negotiation or downgrade to PKI-DH.  Mixed built-in/PQSec peers do
+- There is no downgrade to a classical algorithm.  Mixed classical/PQ peers do
   not authenticate.
-- The CycloneDDS adapter implements the same protocol and passes the same
-  vectors, but the two have not yet been run against each other.
+- The CycloneDDS adapter has not moved to PKI-DH yet.
 - The implementation uses pure ML-DSA, not the pre-hash variants, and buffers the
   serialized transcript because OpenSSL exposes pure ML-DSA as a one-shot
   signature operation.

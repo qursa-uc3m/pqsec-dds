@@ -54,7 +54,7 @@ if(PQSEC_BUILD_TESTS)
   target_compile_features(pqsec_vector_test PRIVATE cxx_std_11)
   target_include_directories(pqsec_vector_test PRIVATE src)
   target_compile_definitions(pqsec_vector_test PRIVATE
-    PQSEC_VECTORS_FILE="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/vectors/pqsec-auth-1.1.txt")
+    PQSEC_VECTORS_FILE="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/vectors/pkidh-mlkem.txt")
   target_link_libraries(pqsec_vector_test PRIVATE OpenDDS_PQSec OpenSSL::Crypto)
   add_test(NAME pqsec_protocol_vectors COMMAND pqsec_vector_test)
 

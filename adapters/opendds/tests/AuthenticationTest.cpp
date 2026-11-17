@@ -38,7 +38,8 @@ struct Participant {
   DDS::OctetSeq participant_data;
   DDS::Security::SecurityException exception;
 
-  Participant(unsigned char suffix, const char* name, const char* ca_name = "identity_ca_cert.pem")
+  Participant(unsigned char suffix, const char* name, const char* ca_name = "identity_ca_cert.pem",
+              const char* kem = "X25519MLKEM768")
       : candidate(OpenDDS::DCPS::GUID_UNKNOWN), adjusted(OpenDDS::DCPS::GUID_UNKNOWN),
         local(DDS::HANDLE_NIL), remote(DDS::HANDLE_NIL), handshake(DDS::HANDLE_NIL) {
     for (size_t i = 0; i != sizeof candidate.guidPrefix; ++i) {
@@ -52,7 +53,7 @@ struct Participant {
     add_property("dds.sec.auth.identity_certificate",
                  std::string("file:") + PQSEC_TEST_CERT_DIR + "/participant_" + name + "_cert.pem");
     add_property("dds.sec.auth.password", "");
-    add_property("pqsec-dds.kem", "X25519MLKEM768");
+    add_property("dds.sec.auth.key_establishment_algorithm", kem);
   }
 
   void add_property(const char* name, const std::string& value) {
@@ -122,6 +123,14 @@ void set_string(DDS::OctetSeq& value, const char* text) {
   std::memcpy(value.get_buffer(), text, size);
 }
 
+void add(DDS::Security::Token& token, const char* name, const DDS::OctetSeq& value) {
+  const CORBA::ULong length = token.binary_properties.length();
+  token.binary_properties.length(length + 1);
+  token.binary_properties[length].name = name;
+  token.binary_properties[length].value = value;
+  token.binary_properties[length].propagate = true;
+}
+
 struct Exchange {
   Participant a;
   Participant b;
@@ -130,7 +139,9 @@ struct Exchange {
   DDS::Security::HandshakeMessageToken request;
   DDS::Security::HandshakeMessageToken reply;
 
-  Exchange() : a(1, "a"), b(2, "b"), initiator(0), replier(0) {}
+  explicit Exchange(const char* kem = "X25519MLKEM768", const char* other_kem = 0)
+      : a(1, "a", "identity_ca_cert.pem", kem),
+        b(2, "b", "identity_ca_cert.pem", other_kem ? other_kem : kem), initiator(0), replier(0) {}
 
   bool prepare_request() {
     if (!initialize(a) || !initialize(b))
@@ -172,10 +183,22 @@ struct Exchange {
                      replier->exception) == VALIDATION_PENDING_HANDSHAKE_MESSAGE,
                  "begin_handshake_reply failed", replier->exception);
   }
+
+  bool process_reply(DDS::Security::HandshakeMessageToken& final_message) {
+    return initiator->authentication.process_handshake(final_message, reply, initiator->handshake,
+                                                       initiator->exception) ==
+           VALIDATION_OK_FINAL_MESSAGE;
+  }
+
+  bool process_final(const DDS::Security::HandshakeMessageToken& final_message) {
+    DDS::Security::HandshakeMessageToken unused;
+    return replier->authentication.process_handshake(unused, final_message, replier->handshake,
+                                                     replier->exception) == VALIDATION_OK;
+  }
 };
 
-bool happy_path_and_replay_test() {
-  Exchange exchange;
+bool happy_path_and_replay_test(const char* kem) {
+  Exchange exchange(kem);
   if (!exchange.prepare_request() || !exchange.prepare_reply())
     return false;
   DDS::Security::HandshakeMessageToken final_message;
@@ -234,8 +257,8 @@ bool tampered_signature_test() {
                "a forged reply blocked the genuine one", exchange.initiator->exception);
 }
 
-// An attacker replaces the initiator's KEM public key with its own.  The
-// replier cannot notice, but the initiator signs and checks its own key.
+// An attacker replaces the initiator's dh1 with its own key.  The replier
+// cannot notice, but the initiator signs and checks its own dh1.
 bool substituted_public_key_test() {
   Exchange exchange;
   if (!exchange.prepare_request())
@@ -243,7 +266,7 @@ bool substituted_public_key_test() {
   OpenDDS_PQSec::Kem attacker("X25519MLKEM768");
   std::vector<unsigned char> attacker_key;
   std::string error;
-  DDS::OctetSeq* public_key = property(exchange.request, "pqsec-dds.kem_public");
+  DDS::OctetSeq* public_key = property(exchange.request, "dh1");
   if (!public_key || !attacker.generate(error) || !attacker.public_key(attacker_key, error))
     return false;
   *public_key = OpenDDS_PQSec::octets(attacker_key);
@@ -256,7 +279,7 @@ bool substituted_public_key_test() {
                "reply to a substituted KEM public key was accepted", exchange.initiator->exception);
 }
 
-// An attacker replaces the ciphertext with a valid one of its own for the
+// An attacker replaces dh2 with a valid ciphertext of its own for the
 // initiator's key, so decapsulation alone would succeed.
 bool substituted_ciphertext_test() {
   Exchange exchange;
@@ -265,8 +288,8 @@ bool substituted_ciphertext_test() {
   OpenDDS_PQSec::Kem attacker("X25519MLKEM768");
   std::vector<unsigned char> ciphertext, secret;
   std::string error;
-  DDS::OctetSeq* public_key = property(exchange.request, "pqsec-dds.kem_public");
-  DDS::OctetSeq* reply_ciphertext = property(exchange.reply, "pqsec-dds.kem_ciphertext");
+  DDS::OctetSeq* public_key = property(exchange.request, "dh1");
+  DDS::OctetSeq* reply_ciphertext = property(exchange.reply, "dh2");
   if (!public_key || !reply_ciphertext ||
       !attacker.import_public(OpenDDS_PQSec::bytes(*public_key), error) ||
       !attacker.encapsulate(ciphertext, secret, error))
@@ -296,20 +319,119 @@ bool credential_binding_test() {
                "reply with altered permissions was accepted", exchange.initiator->exception);
 }
 
-bool algorithm_mismatch_test() {
-  Exchange exchange;
-  if (!exchange.prepare_request())
+// The replier uses the algorithm the initiator chose, not its own setting.
+bool initiator_chooses_test() {
+  Exchange exchange("ML-KEM-1024", "ML-KEM-768");
+  DDS::Security::HandshakeMessageToken final_message;
+  if (!exchange.prepare_request() || !exchange.prepare_reply() ||
+      !check(exchange.process_reply(final_message), "reply processing failed",
+             exchange.initiator->exception) ||
+      !check(exchange.process_final(final_message), "final processing failed",
+             exchange.replier->exception))
     return false;
-  DDS::OctetSeq* algorithm = property(exchange.request, "c.kagree_algo");
-  if (!algorithm)
-    return false;
-  set_string(*algorithm, "ML-KEM-768");
-  exchange.reply = exchange.request;
-  return check(exchange.replier->authentication.begin_handshake_reply(
+  const DDS::OctetSeq* requested = property(exchange.request, "c.kagree_algo");
+  const DDS::OctetSeq* replied = property(exchange.reply, "c.kagree_algo");
+  return check(requested && replied && OpenDDS_PQSec::equal(*requested, *replied),
+               "replier did not use the initiator's algorithm", exchange.replier->exception);
+}
+
+// A request from a classical PKI-DH participant, under its 1.2 or 1.1 name.
+bool classical_request_test() {
+  const char* names[] = {"ECDHE-CEUM+P256", "ECDH+prime256v1-CEUM", ""};
+  for (size_t i = 0; i != sizeof names / sizeof names[0]; ++i) {
+    Exchange exchange;
+    if (!exchange.prepare_request())
+      return false;
+    DDS::OctetSeq* algorithm = property(exchange.request, "c.kagree_algo");
+    if (!algorithm)
+      return false;
+    set_string(*algorithm, names[i]);
+    exchange.reply = exchange.request;
+    if (!check(exchange.replier->authentication.begin_handshake_reply(
                    exchange.replier->handshake, exchange.reply, exchange.replier->remote,
                    exchange.replier->local, exchange.replier->participant_data,
                    exchange.replier->exception) == DDS::Security::VALIDATION_FAILED,
-               "mismatched KEM algorithm was accepted", exchange.replier->exception);
+               "request with a classical key establishment algorithm was accepted",
+               exchange.replier->exception))
+      return false;
+  }
+  return true;
+}
+
+bool reply_algorithm_test() {
+  Exchange exchange;
+  if (!exchange.prepare_request() || !exchange.prepare_reply())
+    return false;
+  DDS::OctetSeq* algorithm = property(exchange.reply, "c.kagree_algo");
+  if (!algorithm)
+    return false;
+  set_string(*algorithm, "ML-KEM-768");
+  DDS::Security::HandshakeMessageToken output;
+  return check(!exchange.process_reply(output),
+               "reply naming another algorithm than the request was accepted",
+               exchange.initiator->exception);
+}
+
+// Echoed values are optional. One that differs from the local value is
+// refused; one that matches is accepted.
+bool reply_echo_test() {
+  Exchange exchange;
+  if (!exchange.prepare_request() || !exchange.prepare_reply())
+    return false;
+  const DDS::OctetSeq* dh1 = property(exchange.request, "dh1");
+  if (!dh1)
+    return false;
+  DDS::OctetSeq other(*dh1);
+  other[0] ^= 1;
+  const DDS::Security::HandshakeMessageToken genuine = exchange.reply;
+  add(exchange.reply, "dh1", other);
+  DDS::Security::HandshakeMessageToken final_message;
+  if (!check(!exchange.process_reply(final_message), "reply echoing a different dh1 was accepted",
+             exchange.initiator->exception))
+    return false;
+  exchange.reply = genuine;
+  add(exchange.reply, "dh1", *dh1);
+  return check(exchange.process_reply(final_message), "reply echoing the right dh1 was refused",
+               exchange.initiator->exception);
+}
+
+bool final_mismatch_test() {
+  Exchange exchange;
+  DDS::Security::HandshakeMessageToken final_message;
+  if (!exchange.prepare_request() || !exchange.prepare_reply() ||
+      !exchange.process_reply(final_message))
+    return false;
+
+  DDS::Security::HandshakeMessageToken altered = final_message;
+  DDS::OctetSeq* challenge1 = property(altered, "challenge1");
+  if (!challenge1 || challenge1->length() != 32)
+    return false;
+  (*challenge1)[0] ^= 1;
+  if (!check(!exchange.process_final(altered), "final with a different challenge1 was accepted",
+             exchange.replier->exception))
+    return false;
+
+  altered = final_message;
+  DDS::OctetSeq* challenge2 = property(altered, "challenge2");
+  if (!challenge2)
+    return false;
+  challenge2->length(0);
+  if (!check(!exchange.process_final(altered), "final without challenge2 was accepted",
+             exchange.replier->exception))
+    return false;
+
+  altered = final_message;
+  const DDS::OctetSeq* dh2 = property(exchange.reply, "dh2");
+  if (!dh2)
+    return false;
+  DDS::OctetSeq other(*dh2);
+  other[0] ^= 1;
+  add(altered, "dh2", other);
+  if (!check(!exchange.process_final(altered), "final echoing a different dh2 was accepted",
+             exchange.replier->exception))
+    return false;
+  return check(exchange.process_final(final_message), "a refused final blocked the genuine one",
+               exchange.replier->exception);
 }
 
 bool challenge_length_tests() {
@@ -407,13 +529,26 @@ bool classical_ca_test() {
                "identity CA with a classical key was accepted", participant.exception);
 }
 
+bool classical_configuration_test() {
+  Participant participant(1, "a", "identity_ca_cert.pem", "ECDHE-CEUM+P256");
+  return check(participant.authentication.validate_local_identity(
+                   participant.local, participant.adjusted, 0, participant.qos,
+                   participant.candidate,
+                   participant.exception) == DDS::Security::VALIDATION_FAILED,
+               "a classical key establishment algorithm was configured", participant.exception);
+}
+
 } // namespace
 
 int main() {
-  return happy_path_and_replay_test() && tampered_signature_test() &&
+  return happy_path_and_replay_test("ML-KEM-768") && happy_path_and_replay_test("ML-KEM-1024") &&
+                 happy_path_and_replay_test("X25519MLKEM768") &&
+                 happy_path_and_replay_test("AUTO") && tampered_signature_test() &&
                  substituted_public_key_test() && substituted_ciphertext_test() &&
-                 credential_binding_test() && algorithm_mismatch_test() &&
-                 challenge_length_tests() && different_ca_test() && classical_ca_test()
+                 credential_binding_test() && initiator_chooses_test() &&
+                 classical_request_test() && reply_algorithm_test() && reply_echo_test() &&
+                 final_mismatch_test() && challenge_length_tests() && different_ca_test() &&
+                 classical_ca_test() && classical_configuration_test()
              ? 0
              : 1;
 }
