@@ -42,8 +42,8 @@ cd adapters/cyclonedds
 
 The experimental OpenDDS adapter is documented in
 [adapters/opendds](adapters/opendds/README.md).  It requires the OpenDDS fork's
-`feature/external-security-plugins` branch while the external-loader changes
-are being proposed upstream.
+`security-1.2-algorithms` branch while the external-loader and DDS Security
+1.2 changes are being proposed upstream.
 
 ```sh
 cmake -S adapters/opendds -B adapters/opendds/build \

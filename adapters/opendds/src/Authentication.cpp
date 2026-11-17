@@ -7,6 +7,7 @@
 #include "Transcript.h"
 
 #include <dds/DCPS/LocalObject.h>
+#include <dds/DCPS/SecurityAlgorithms.h>
 #include <dds/DCPS/Serializer.h>
 #include <dds/DCPS/RTPS/RtpsCoreC.h>
 #include <dds/DCPS/RTPS/RtpsCoreTypeSupportImpl.h>
@@ -67,13 +68,21 @@ std::string string_value(const DDS::OctetSeq& value) {
   return std::strlen(text) == length - 1 ? std::string(text) : std::string();
 }
 
-bool mldsa_algorithm(const std::string& value) {
-  return value == "ML-DSA-65" || value == "ML-DSA-87";
+// Provisional CryptoAlgorithmBits from the vendor range (protocol/pkidh-mlkem.md).
+// Zero means the algorithm is not in the profile.
+DDS::Security::CryptoAlgorithmBit signature_bit(const std::string& value) {
+  return value == "ML-DSA-65" ? 0x00010000 : value == "ML-DSA-87" ? 0x00020000 : 0;
 }
 
-bool kem_algorithm(const std::string& value) {
-  return value == "ML-KEM-768" || value == "ML-KEM-1024" || value == "X25519MLKEM768";
+DDS::Security::CryptoAlgorithmBit kem_bit(const std::string& value) {
+  return value == "ML-KEM-768"       ? 0x00010000
+         : value == "ML-KEM-1024"    ? 0x00020000
+         : value == "X25519MLKEM768" ? 0x00040000
+                                     : 0;
 }
+
+const DDS::Security::CryptoAlgorithmSet SIGNATURES = 0x00030000;
+const DDS::Security::CryptoAlgorithmSet KEMS = 0x00070000;
 
 bool initiator(const OpenDDS::DCPS::GUID_t& local, const OpenDDS::DCPS::GUID_t& remote) {
   return local < remote;
@@ -149,9 +158,11 @@ private:
 } // namespace
 
 struct Authentication::LocalIdentity {
+  LocalIdentity() : accepted_kems(KEMS) {}
   OpenDDS::Security::LocalAuthCredentialData::shared_ptr credentials;
   OpenDDS::DCPS::GUID_t guid;
   std::string kem_algorithm;
+  DDS::Security::CryptoAlgorithmSet accepted_kems;
 };
 
 struct Authentication::RemoteIdentity {
@@ -213,8 +224,8 @@ DDS::Security::ValidationResult_t Authentication::validate_local_identity(
     fail(ex, "PQSec failed to load or validate local credentials");
     return DDS::Security::VALIDATION_FAILED;
   }
-  if (!mldsa_algorithm(credentials->get_participant_cert().dsign_algo()) ||
-      !mldsa_algorithm(credentials->get_ca_cert().dsign_algo())) {
+  if (!signature_bit(credentials->get_participant_cert().dsign_algo()) ||
+      !signature_bit(credentials->get_ca_cert().dsign_algo())) {
     fail(ex, "PQSec requires ML-DSA identity and identity CA certificates");
     return DDS::Security::VALIDATION_FAILED;
   }
@@ -225,7 +236,7 @@ DDS::Security::ValidationResult_t Authentication::validate_local_identity(
         std::strcmp(qos.property.value[i].value.in(), "AUTO") != 0)
       selected_kem = qos.property.value[i].value.in();
   }
-  if (!kem_algorithm(selected_kem)) {
+  if (!kem_bit(selected_kem)) {
     fail(ex, "PQSec requested an unsupported KEM algorithm: " + selected_kem);
     return DDS::Security::VALIDATION_FAILED;
   }
@@ -274,6 +285,47 @@ CORBA::Boolean Authentication::get_identity_status_token(DDS::Security::Identity
     fail(ex, "Unknown local identity");
     return false;
   }
+  return true;
+}
+
+// DDS Security 1.2, 9.3.2.11.11. Supported masks keep only what this plugin
+// implements. Required masks gain what it uses: both ML-DSA levels of its
+// credentials, and the KEM it initiates with. A KEM it only accepts as replier
+// stays in the supported mask, since the initiator chooses.
+CORBA::Boolean Authentication::set_participant_security_config(
+    DDS::Security::ParticipantSecurityAlgorithmInfo& adjusted, DDS::Security::IdentityHandle handle,
+    const DDS::Security::ParticipantSecurityConfig& config, DDS::Security::SecurityException& ex) {
+  std::lock_guard<std::mutex> guard(mutex_);
+  LocalPtr identity = local(handle);
+  if (!identity) {
+    fail(ex, "Unknown local identity");
+    return false;
+  }
+  adjusted = config.algorithm_info;
+  DDS::Security::CryptoAlgorithmRequirements& trust_chain = adjusted.digital_signature.trust_chain;
+  DDS::Security::CryptoAlgorithmRequirements& message_auth =
+      adjusted.digital_signature.message_auth;
+  DDS::Security::CryptoAlgorithmRequirements& shared_secret =
+      adjusted.key_establishment.shared_secret;
+  trust_chain.supported_mask &= SIGNATURES;
+  trust_chain.required_mask |= signature_bit(identity->credentials->get_ca_cert().dsign_algo());
+  message_auth.supported_mask &= SIGNATURES;
+  message_auth.required_mask |=
+      signature_bit(identity->credentials->get_participant_cert().dsign_algo());
+  shared_secret.supported_mask &= KEMS;
+  shared_secret.required_mask |= kem_bit(identity->kem_algorithm);
+
+  using OpenDDS::DCPS::check_crypto_algorithm_compatibility;
+  if (!check_crypto_algorithm_compatibility(trust_chain.supported_mask,
+                                            trust_chain.required_mask) ||
+      !check_crypto_algorithm_compatibility(message_auth.supported_mask,
+                                            message_auth.required_mask) ||
+      !check_crypto_algorithm_compatibility(shared_secret.supported_mask,
+                                            shared_secret.required_mask)) {
+    fail(ex, "The participant security configuration excludes an algorithm PQSec uses");
+    return false;
+  }
+  identity->accepted_kems = shared_secret.supported_mask;
   return true;
 }
 
@@ -418,7 +470,7 @@ bool Authentication::validate_remote_credentials(
   const std::string signature_algorithm =
       string_value(reader.get_bin_property_value("c.dsign_algo"));
   const std::string selected_kem = string_value(reader.get_bin_property_value("c.kagree_algo"));
-  if (!mldsa_algorithm(signature_algorithm) || selected_kem != hs.kem.algorithm()) {
+  if (!signature_bit(signature_algorithm) || selected_kem != hs.kem.algorithm()) {
     fail(ex, "Unsupported or mismatched PQSec algorithms");
     return false;
   }
@@ -461,8 +513,8 @@ DDS::Security::ValidationResult_t Authentication::begin_handshake_reply(
   }
   OpenDDS::Security::TokenReader request_reader(request);
   const std::string kem = string_value(request_reader.get_bin_property_value("c.kagree_algo"));
-  if (!kem_algorithm(kem)) {
-    fail(ex, "PQSec does not support the key establishment algorithm of the request");
+  if (!(kem_bit(kem) & local_identity->accepted_kems)) {
+    fail(ex, "PQSec does not accept the key establishment algorithm of the request");
     return DDS::Security::VALIDATION_FAILED;
   }
 

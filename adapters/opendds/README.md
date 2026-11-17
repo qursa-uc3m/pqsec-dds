@@ -17,13 +17,16 @@ authentication on the existing, tested OpenDDS implementation.
 
 ## OpenDDS dependency
 
-The plugin currently requires the accompanying `feature/external-security-plugins`
-branch in an OpenDDS checkout.  That branch adds:
+The plugin currently requires the `security-1.2-algorithms` branch of the
+OpenDDS fork.  That branch adds:
 
 1. INI-driven dynamic security-plugin registration.
 2. Selection of a global named security configuration at startup.
 3. Per-interface composition, including the Utility interface.
 4. Digestless ML-DSA support in OpenDDS's X.509 signing helpers.
+5. The DDS Security 1.2 participant algorithm negotiation, including the
+   Authentication operation `set_participant_security_config`, which every
+   Authentication plugin must implement.
 
 These are generic OpenDDS changes.  No PQSec-specific library or protocol name is
 hard-coded in the fork.
@@ -31,9 +34,10 @@ hard-coded in the fork.
 The adapter also consumes OpenDDS-internal C++ helpers, notably
 `SSL::Certificate`, `LocalAuthCredentialData`, and the security token utilities;
 these are not a stable external plugin ABI and may require adapter changes when
-OpenDDS changes them.  The external-loader changes and the digestless ML-DSA
-helper support should therefore be reviewed and upstreamed as separate OpenDDS
-changes before this adapter can build against an unmodified release.
+OpenDDS changes them.  The external-loader changes, the digestless ML-DSA
+helper support and the 1.2 negotiation should therefore be reviewed and
+upstreamed as separate OpenDDS changes before this adapter can build against an
+unmodified release.
 
 ## Protocol
 
@@ -120,6 +124,14 @@ selects the KEM this participant uses when it initiates: `X25519MLKEM768`,
 `ML-KEM-768` or `ML-KEM-1024`. `AUTO`, or no property, means
 `X25519MLKEM768`. `X25519MLKEM768` is OpenSSL's native TLS-style hybrid KEM
 and combines X25519 with ML-KEM-768 inside the provider.
+
+Through `set_participant_security_config` the plugin announces in discovery
+the three KEMs and both ML-DSA levels as supported, and its own KEM and ML-DSA
+levels as required, using the provisional vendor-range bits of the protocol
+document. A participant configuration that removes a KEM from the supported
+set also stops the plugin from accepting it as replier. Vendor-range bits are
+interpreted per RTPS vendor, so this negotiation only works between OpenDDS
+participants.
 
 The governance document must keep `allow_unauthenticated_participants` disabled.
 Classical PKI-DH peers fail authentication with this plugin; allowing them to

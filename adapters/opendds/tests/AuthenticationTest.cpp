@@ -37,11 +37,12 @@ struct Participant {
   DDS::Security::HandshakeHandle handshake;
   DDS::OctetSeq participant_data;
   DDS::Security::SecurityException exception;
+  std::string kem;
 
   Participant(unsigned char suffix, const char* name, const char* ca_name = "identity_ca_cert.pem",
               const char* kem = "X25519MLKEM768")
       : candidate(OpenDDS::DCPS::GUID_UNKNOWN), adjusted(OpenDDS::DCPS::GUID_UNKNOWN),
-        local(DDS::HANDLE_NIL), remote(DDS::HANDLE_NIL), handshake(DDS::HANDLE_NIL) {
+        local(DDS::HANDLE_NIL), remote(DDS::HANDLE_NIL), handshake(DDS::HANDLE_NIL), kem(kem) {
     for (size_t i = 0; i != sizeof candidate.guidPrefix; ++i) {
       candidate.guidPrefix[i] = static_cast<unsigned char>(i + suffix);
     }
@@ -232,6 +233,67 @@ bool happy_path_and_replay_test(const char* kem) {
                    unused, exchange.reply, exchange.initiator->handshake,
                    exchange.initiator->exception) == DDS::Security::VALIDATION_FAILED,
                "completed handshake accepted a replayed reply", exchange.initiator->exception);
+}
+
+// The configuration the middleware passes when governance sets no algorithms.
+DDS::Security::ParticipantSecurityConfig open_config() {
+  DDS::Security::ParticipantSecurityConfig config;
+  DDS::Security::CryptoAlgorithmRequirements* requirements[] = {
+      &config.algorithm_info.digital_signature.trust_chain,
+      &config.algorithm_info.digital_signature.message_auth,
+      &config.algorithm_info.key_establishment.shared_secret};
+  for (size_t i = 0; i != sizeof requirements / sizeof requirements[0]; ++i) {
+    requirements[i]->supported_mask = DDS::Security::CRYPTO_ALGORITHM_SET_ALL;
+    requirements[i]->required_mask = DDS::Security::CRYPTO_ALGORITHM_SET_EMPTY;
+  }
+  return config;
+}
+
+bool security_config_test() {
+  Participant participant(1, "a");
+  if (!initialize(participant))
+    return false;
+  DDS::Security::ParticipantSecurityConfig config = open_config();
+  DDS::Security::ParticipantSecurityAlgorithmInfo adjusted;
+  if (!check(participant.authentication.set_participant_security_config(
+                 adjusted, participant.local, config, participant.exception),
+             "set_participant_security_config failed", participant.exception))
+    return false;
+  const DDS::Security::CryptoAlgorithmRequirements& kem = adjusted.key_establishment.shared_secret;
+  const DDS::Security::CryptoAlgorithmRequirements& signature =
+      adjusted.digital_signature.message_auth;
+  const DDS::Security::CryptoAlgorithmRequirements& chain = adjusted.digital_signature.trust_chain;
+  if (!check(kem.supported_mask == 0x00070000 && kem.required_mask == 0x00040000 &&
+                 signature.supported_mask == 0x00030000 && signature.required_mask == 0x00010000 &&
+                 chain.supported_mask == 0x00030000 && chain.required_mask == 0x00010000,
+             "unexpected adjusted algorithm info", participant.exception))
+    return false;
+
+  config.algorithm_info.key_establishment.shared_secret.supported_mask = 0x00010000;
+  return check(!participant.authentication.set_participant_security_config(
+                   adjusted, participant.local, config, participant.exception),
+               "a configuration without the participant's KEM was accepted", participant.exception);
+}
+
+// A replier whose configuration narrows the accepted KEMs refuses the others.
+bool narrowed_replier_test() {
+  Exchange exchange("ML-KEM-1024", "ML-KEM-768");
+  if (!exchange.prepare_request())
+    return false;
+  Participant& replier = *exchange.replier;
+  DDS::Security::ParticipantSecurityConfig config = open_config();
+  config.algorithm_info.key_establishment.shared_secret.supported_mask =
+      replier.kem == "ML-KEM-768" ? 0x00010000 : 0x00020000;
+  DDS::Security::ParticipantSecurityAlgorithmInfo adjusted;
+  if (!check(replier.authentication.set_participant_security_config(adjusted, replier.local, config,
+                                                                    replier.exception),
+             "set_participant_security_config failed", replier.exception))
+    return false;
+  exchange.reply = exchange.request;
+  return check(replier.authentication.begin_handshake_reply(
+                   replier.handshake, exchange.reply, replier.remote, replier.local,
+                   replier.participant_data, replier.exception) == DDS::Security::VALIDATION_FAILED,
+               "a KEM excluded by the configuration was accepted", replier.exception);
 }
 
 bool tampered_signature_test() {
@@ -548,7 +610,8 @@ int main() {
                  credential_binding_test() && initiator_chooses_test() &&
                  classical_request_test() && reply_algorithm_test() && reply_echo_test() &&
                  final_mismatch_test() && challenge_length_tests() && different_ca_test() &&
-                 classical_ca_test() && classical_configuration_test()
+                 classical_ca_test() && classical_configuration_test() && security_config_test() &&
+                 narrowed_replier_test()
              ? 0
              : 1;
 }

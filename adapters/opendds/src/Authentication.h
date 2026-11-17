@@ -32,6 +32,10 @@ public:
   CORBA::Boolean get_identity_status_token(DDS::Security::IdentityStatusToken&,
                                            DDS::Security::IdentityHandle,
                                            DDS::Security::SecurityException&);
+  CORBA::Boolean set_participant_security_config(
+      DDS::Security::ParticipantSecurityAlgorithmInfo& adjusted_algorithm_info,
+      DDS::Security::IdentityHandle, const DDS::Security::ParticipantSecurityConfig&,
+      DDS::Security::SecurityException&);
   CORBA::Boolean set_permissions_credential_and_token(
       DDS::Security::IdentityHandle, const DDS::Security::PermissionsCredentialToken&,
       const DDS::Security::PermissionsToken&, DDS::Security::SecurityException&);
