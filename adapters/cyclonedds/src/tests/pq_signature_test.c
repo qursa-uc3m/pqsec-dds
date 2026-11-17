@@ -39,16 +39,16 @@ int main(void) {
   int result = 1;
 
   if (!key ||
-      create_pq_signature(key, transcript, 2, &signature, &signature_size, &exception, NULL,
-                          AUTH_ALGO_KIND_ML_DSA_65, NULL) != DDS_SECURITY_VALIDATION_OK ||
-      validate_pq_signature(key, transcript, 2, signature, signature_size, &exception, NULL) !=
+      create_pq_signature(key, transcript, 2, &signature, &signature_size, &exception) !=
+          DDS_SECURITY_VALIDATION_OK ||
+      validate_pq_signature(key, transcript, 2, signature, signature_size, &exception) !=
           DDS_SECURITY_VALIDATION_OK) {
     fprintf(stderr, "ML-DSA transcript round trip failed\n");
     goto cleanup;
   }
 
   signature[0] ^= 1;
-  if (validate_pq_signature(key, transcript, 2, signature, signature_size, &exception, NULL) ==
+  if (validate_pq_signature(key, transcript, 2, signature, signature_size, &exception) ==
       DDS_SECURITY_VALIDATION_OK) {
     fprintf(stderr, "Tampered ML-DSA signature was accepted\n");
     goto cleanup;

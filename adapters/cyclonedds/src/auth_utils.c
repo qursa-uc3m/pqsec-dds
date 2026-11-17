@@ -220,9 +220,7 @@ DDS_Security_ValidationResult_t check_certificate_expiry(const X509 *cert,
 }
 
 static DDS_Security_ValidationResult_t
-load_X509_certificate_from_bio(BIO *bio, X509 **x509Cert, OSSL_LIB_CTX *oqs_libctx,
-                               DDS_Security_SecurityException *ex) {
-  DDSRT_UNUSED_ARG(oqs_libctx);
+load_X509_certificate_from_bio(BIO *bio, X509 **x509Cert, DDS_Security_SecurityException *ex) {
   assert(x509Cert);
 
   if (!(*x509Cert = PEM_read_bio_X509(bio, NULL, NULL, NULL))) {
@@ -332,7 +330,7 @@ static BIO *load_file_into_BIO(const char *filename, DDS_Security_SecurityExcept
 
 DDS_Security_ValidationResult_t
 load_X509_certificate_from_data(const char *data, int len, X509 **x509Cert,
-                                OSSL_LIB_CTX *oqs_libctx, DDS_Security_SecurityException *ex) {
+                                DDS_Security_SecurityException *ex) {
   DBG_TRACE("load_X509_certificate_from_data() called (len=%d)\n", len);
   BIO *bio;
 
@@ -343,30 +341,27 @@ load_X509_certificate_from_data(const char *data, int len, X509 **x509Cert,
                                DDS_SECURITY_VALIDATION_FAILED, "BIO_new_mem_buf failed");
     return DDS_SECURITY_VALIDATION_FAILED;
   }
-  const DDS_Security_ValidationResult_t result =
-      load_X509_certificate_from_bio(bio, x509Cert, oqs_libctx, ex);
+  const DDS_Security_ValidationResult_t result = load_X509_certificate_from_bio(bio, x509Cert, ex);
   BIO_free(bio);
   return result;
 }
 
 DDS_Security_ValidationResult_t
-load_X509_certificate_from_file(const char *filename, X509 **x509Cert, OSSL_LIB_CTX *oqs_libctx,
+load_X509_certificate_from_file(const char *filename, X509 **x509Cert,
                                 DDS_Security_SecurityException *ex) {
   DBG_TRACE("load_X509_certificate_from_file() called (file='%s')\n", filename);
   BIO *bio = load_file_into_BIO(filename, ex);
   if (!bio) {
     return DDS_SECURITY_VALIDATION_FAILED;
   }
-  const DDS_Security_ValidationResult_t result =
-      load_X509_certificate_from_bio(bio, x509Cert, oqs_libctx, ex);
+  const DDS_Security_ValidationResult_t result = load_X509_certificate_from_bio(bio, x509Cert, ex);
   BIO_free(bio);
   return result;
 }
 
 static DDS_Security_ValidationResult_t
 load_private_key_from_data(const char *data, const char *password, EVP_PKEY **privateKey,
-                           OSSL_LIB_CTX *oqs_libctx, DDS_Security_SecurityException *ex) {
-  DDSRT_UNUSED_ARG(oqs_libctx);
+                           DDS_Security_SecurityException *ex) {
   DBG_TRACE("load_private_key_from_data() called\n");
   BIO *bio = BIO_new_mem_buf((void *)data, -1);
   if (!bio) {
@@ -391,15 +386,15 @@ load_private_key_from_data(const char *data, const char *password, EVP_PKEY **pr
 
 static DDS_Security_ValidationResult_t
 load_private_key_from_file(const char *filepath, const char *password, EVP_PKEY **privateKey,
-                           OSSL_LIB_CTX *oqs_libctx, DDS_Security_SecurityException *ex) {
+                           DDS_Security_SecurityException *ex) {
   DBG_TRACE("load_private_key_from_file() called (file='%s')\n", filepath);
   BIO *bio = load_file_into_BIO(filepath, ex);
   if (!bio) {
     return DDS_SECURITY_VALIDATION_FAILED;
   }
 
-  *privateKey = PEM_read_bio_PrivateKey_ex(bio, NULL, NULL, (void *)(password ? password : ""),
-                                           oqs_libctx, NULL);
+  *privateKey =
+      PEM_read_bio_PrivateKey_ex(bio, NULL, NULL, (void *)(password ? password : ""), NULL, NULL);
   if (!*privateKey) {
     DBG_ERR("PEM_read_bio_PrivateKey_ex failed\n");
     DDS_Security_Exception_set_with_openssl_error(
@@ -441,7 +436,6 @@ static AuthConfItemPrefix_t get_conf_item_type(const char *str, char **data) {
 }
 
 DDS_Security_ValidationResult_t load_X509_certificate(const char *data, X509 **x509Cert,
-                                                      OSSL_LIB_CTX *oqs_libctx,
                                                       DDS_Security_SecurityException *ex) {
   DDS_Security_ValidationResult_t result;
   char *contents = NULL;
@@ -451,11 +445,10 @@ DDS_Security_ValidationResult_t load_X509_certificate(const char *data, X509 **x
 
   switch (get_conf_item_type(data, &contents)) {
   case AUTH_CONF_ITEM_PREFIX_FILE:
-    result = load_X509_certificate_from_file(contents, x509Cert, oqs_libctx, ex);
+    result = load_X509_certificate_from_file(contents, x509Cert, ex);
     break;
   case AUTH_CONF_ITEM_PREFIX_DATA:
-    result =
-        load_X509_certificate_from_data(contents, (int)strlen(contents), x509Cert, oqs_libctx, ex);
+    result = load_X509_certificate_from_data(contents, (int)strlen(contents), x509Cert, ex);
     break;
   case AUTH_CONF_ITEM_PREFIX_PKCS11:
     DBG_ERR("PKCS11 certificate format not supported\n");
@@ -489,7 +482,6 @@ DDS_Security_ValidationResult_t load_X509_certificate(const char *data, X509 **x
 
 DDS_Security_ValidationResult_t load_X509_private_key(const char *data, const char *password,
                                                       EVP_PKEY **privateKey,
-                                                      OSSL_LIB_CTX *oqs_libctx,
                                                       DDS_Security_SecurityException *ex) {
   DDS_Security_ValidationResult_t result;
   char *contents = NULL;
@@ -500,11 +492,11 @@ DDS_Security_ValidationResult_t load_X509_private_key(const char *data, const ch
   switch (get_conf_item_type(data, &contents)) {
   case AUTH_CONF_ITEM_PREFIX_FILE:
     DBG_TRACE("Loading private key from file\n");
-    result = load_private_key_from_file(contents, password, privateKey, oqs_libctx, ex);
+    result = load_private_key_from_file(contents, password, privateKey, ex);
     break;
   case AUTH_CONF_ITEM_PREFIX_DATA:
     DBG_TRACE("Loading private key from data\n");
-    result = load_private_key_from_data(contents, password, privateKey, oqs_libctx, ex);
+    result = load_private_key_from_data(contents, password, privateKey, ex);
     break;
   case AUTH_CONF_ITEM_PREFIX_PKCS11:
     DBG_ERR("PKCS11 format not supported\n");
@@ -619,7 +611,7 @@ DDS_Security_ValidationResult_t load_X509_CRL(const char *data, X509_CRL **crl,
 }
 
 DDS_Security_ValidationResult_t verify_certificate(X509 *identityCert, X509 *identityCa,
-                                                   X509_CRL *crl, OSSL_LIB_CTX *oqs_libctx,
+                                                   X509_CRL *crl,
                                                    DDS_Security_SecurityException *ex) {
   X509_STORE_CTX *ctx;
   X509_STORE *store;
@@ -657,7 +649,7 @@ DDS_Security_ValidationResult_t verify_certificate(X509 *identityCert, X509 *ide
     DBG_TRACE("Added CRL and set verify_flags\n");
   }
 
-  ctx = oqs_libctx ? X509_STORE_CTX_new_ex(oqs_libctx, NULL) : X509_STORE_CTX_new();
+  ctx = X509_STORE_CTX_new();
   if (!ctx) {
     DBG_ERR("X509_STORE_CTX_new failed\n");
     DDS_Security_Exception_set_with_openssl_error(
@@ -774,7 +766,6 @@ void free_ca_list_contents(X509Seq *ca_list) {
 }
 
 DDS_Security_ValidationResult_t get_trusted_ca_list(const char *trusted_ca_dir, X509Seq *ca_list,
-                                                    OSSL_LIB_CTX *oqs_libctx,
                                                     DDS_Security_SecurityException *ex) {
   DBG_TRACE("get_trusted_ca_list() called (dir='%s')\n", trusted_ca_dir);
   ddsrt_dir_handle_t d_descr;
@@ -808,8 +799,7 @@ DDS_Security_ValidationResult_t get_trusted_ca_list(const char *trusted_ca_dir, 
             ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_TRUSTED_CA_DIR_MAX_EXCEEDED_CODE, 0,
             DDS_SECURITY_ERR_TRUSTED_CA_DIR_MAX_EXCEEDED_MESSAGE, MAX_TRUSTED_CA);
         failed = true;
-      } else if (load_X509_certificate_from_file(fname, &ca, oqs_libctx, ex) ==
-                 DDS_SECURITY_VALIDATION_OK) {
+      } else if (load_X509_certificate_from_file(fname, &ca, ex) == DDS_SECURITY_VALIDATION_OK) {
         DBG_TRACE("Loaded CA certificate from file '%s'\n", fname);
         ca_buf[ca_cnt++] = ca;
       } else {
@@ -842,7 +832,7 @@ DDS_Security_ValidationResult_t get_trusted_ca_list(const char *trusted_ca_dir, 
 static DDS_Security_ValidationResult_t
 create_validate_pq_signature(bool create, EVP_PKEY *key, const unsigned char *data,
                              size_t data_size, unsigned char **signature, size_t *signature_size,
-                             DDS_Security_SecurityException *ex, OSSL_LIB_CTX *libctx) {
+                             DDS_Security_SecurityException *ex) {
   EVP_MD_CTX *context = NULL;
   DDS_Security_ValidationResult_t result = DDS_SECURITY_VALIDATION_FAILED;
 
@@ -860,7 +850,7 @@ create_validate_pq_signature(bool create, EVP_PKEY *key, const unsigned char *da
   }
 
   if (create) {
-    if (EVP_DigestSignInit_ex(context, NULL, NULL, libctx, NULL, key, NULL) != 1 ||
+    if (EVP_DigestSignInit_ex(context, NULL, NULL, NULL, NULL, key, NULL) != 1 ||
         EVP_DigestSign(context, NULL, signature_size, data, data_size) != 1) {
       goto openssl_error;
     }
@@ -877,7 +867,7 @@ create_validate_pq_signature(bool create, EVP_PKEY *key, const unsigned char *da
       goto openssl_error;
     }
   } else {
-    const int verified = EVP_DigestVerifyInit_ex(context, NULL, NULL, libctx, NULL, key, NULL);
+    const int verified = EVP_DigestVerifyInit_ex(context, NULL, NULL, NULL, NULL, key, NULL);
     if (verified != 1 ||
         EVP_DigestVerify(context, *signature, *signature_size, data, data_size) != 1) {
       DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE,
@@ -903,7 +893,7 @@ cleanup:
 static DDS_Security_ValidationResult_t create_validate_pq_signature_properties(
     bool create, EVP_PKEY *key, const DDS_Security_BinaryProperty_t **properties,
     uint32_t property_count, unsigned char **signature, size_t *signature_size,
-    DDS_Security_SecurityException *ex, OSSL_LIB_CTX *libctx) {
+    DDS_Security_SecurityException *ex) {
   DDS_Security_Serializer serializer;
   unsigned char *buffer = NULL;
   size_t size = 0;
@@ -925,8 +915,7 @@ static DDS_Security_ValidationResult_t create_validate_pq_signature_properties(
 
   DDS_Security_Serialize_BinaryPropertyArray(serializer, properties, property_count);
   DDS_Security_Serializer_buffer(serializer, &buffer, &size);
-  result = create_validate_pq_signature(create, key, buffer, size, signature, signature_size, ex,
-                                        libctx);
+  result = create_validate_pq_signature(create, key, buffer, size, signature, signature_size, ex);
   ddsrt_free(buffer);
   DDS_Security_Serializer_free(serializer);
   return result;
@@ -935,22 +924,18 @@ static DDS_Security_ValidationResult_t create_validate_pq_signature_properties(
 DDS_Security_ValidationResult_t
 create_pq_signature(EVP_PKEY *key, const DDS_Security_BinaryProperty_t **properties,
                     uint32_t property_count, unsigned char **signature, size_t *signature_size,
-                    DDS_Security_SecurityException *ex, uint8_t **unused_public_key,
-                    AuthenticationAlgoKind_t signature_kind, OSSL_LIB_CTX *libctx) {
-  DDSRT_UNUSED_ARG(unused_public_key);
-  DDSRT_UNUSED_ARG(signature_kind);
+                    DDS_Security_SecurityException *ex) {
   return create_validate_pq_signature_properties(true, key, properties, property_count, signature,
-                                                 signature_size, ex, libctx);
+                                                 signature_size, ex);
 }
 
 DDS_Security_ValidationResult_t
 validate_pq_signature(EVP_PKEY *key, const DDS_Security_BinaryProperty_t **properties,
                       uint32_t property_count, const unsigned char *signature,
-                      size_t signature_size, DDS_Security_SecurityException *ex,
-                      OSSL_LIB_CTX *libctx) {
+                      size_t signature_size, DDS_Security_SecurityException *ex) {
   unsigned char *mutable_signature = (unsigned char *)signature;
   return create_validate_pq_signature_properties(false, key, properties, property_count,
-                                                 &mutable_signature, &signature_size, ex, libctx);
+                                                 &mutable_signature, &signature_size, ex);
 }
 
 static DDS_Security_ValidationResult_t

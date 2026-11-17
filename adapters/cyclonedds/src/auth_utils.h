@@ -69,24 +69,20 @@ DDS_Security_ValidationResult_t get_subject_name_DER_encoded(const X509 *cert,
 /* Load a X509 certificate for the provided data (PEM format) */
 DDS_Security_ValidationResult_t load_X509_certificate_from_data(const char *data, int len,
                                                                 X509 **x509Cert,
-                                                                OSSL_LIB_CTX *oqs_libctx,
                                                                 DDS_Security_SecurityException *ex);
 
 /* Load a X509 certificate for the provided data (certificate uri) */
 DDS_Security_ValidationResult_t load_X509_certificate(const char *data, X509 **x509Cert,
-                                                      OSSL_LIB_CTX *oqs_libctx,
                                                       DDS_Security_SecurityException *ex);
 
 /* Load a X509 certificate for the provided file */
 DDS_Security_ValidationResult_t load_X509_certificate_from_file(const char *filename,
                                                                 X509 **x509Cert,
-                                                                OSSL_LIB_CTX *oqs_libctx,
                                                                 DDS_Security_SecurityException *ex);
 
 /* Load a Private Key for the provided data (private key uri) */
 DDS_Security_ValidationResult_t load_X509_private_key(const char *data, const char *password,
                                                       EVP_PKEY **privateKey,
-                                                      OSSL_LIB_CTX *oqs_libctx,
                                                       DDS_Security_SecurityException *ex);
 
 /* Load a Certificate Revocation List (CRL) for the provided data (CRL uri) */
@@ -102,7 +98,7 @@ DDS_Security_ValidationResult_t load_X509_CRL(const char *data, X509_CRL **crl,
  *       for expiry of identity certificate.
  */
 DDS_Security_ValidationResult_t verify_certificate(X509 *identityCert, X509 *identityCa,
-                                                   X509_CRL *crl, OSSL_LIB_CTX *oqs_libctx,
+                                                   X509_CRL *crl,
                                                    DDS_Security_SecurityException *ex);
 
 DDS_Security_ValidationResult_t check_certificate_expiry(const X509 *cert,
@@ -113,7 +109,6 @@ DDS_Security_ValidationResult_t get_certificate_contents(X509 *cert, unsigned ch
                                                          DDS_Security_SecurityException *ex);
 void free_ca_list_contents(X509Seq *ca_list);
 DDS_Security_ValidationResult_t get_trusted_ca_list(const char *trusted_ca_dir, X509Seq *ca_list,
-                                                    OSSL_LIB_CTX *oqs_libctx,
                                                     DDS_Security_SecurityException *ex);
 char *string_from_data(const unsigned char *data, uint32_t size);
 
@@ -121,13 +116,11 @@ char *string_from_data(const unsigned char *data, uint32_t size);
 DDS_Security_ValidationResult_t
 create_pq_signature(EVP_PKEY *pkey, const DDS_Security_BinaryProperty_t **binary_properties,
                     const uint32_t n_bprops, unsigned char **kem_signature,
-                    size_t *kem_signature_len, DDS_Security_SecurityException *ex,
-                    uint8_t **sign_public_key, AuthenticationAlgoKind_t authKind,
-                    OSSL_LIB_CTX *libctx);
+                    size_t *kem_signature_len, DDS_Security_SecurityException *ex);
 DDS_Security_ValidationResult_t
 validate_pq_signature(EVP_PKEY *pkey, const DDS_Security_BinaryProperty_t **bprops,
                       uint32_t n_bprops, const unsigned char *signature, size_t signature_len,
-                      DDS_Security_SecurityException *ex, OSSL_LIB_CTX *libctx);
+                      DDS_Security_SecurityException *ex);
 
 DDS_Security_ValidationResult_t
 validate_kem_public_key_in_token(const DDS_Security_BinaryProperty_t *kem_public_prop,

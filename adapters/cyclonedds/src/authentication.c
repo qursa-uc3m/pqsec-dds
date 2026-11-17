@@ -169,11 +169,6 @@ typedef struct {
   DDS_Security_IdentityHandle hdl;
 } validity_cb_info;
 
-static OSSL_LIB_CTX *get_oqs_context(const dds_security_authentication_impl *auth) {
-  DDSRT_UNUSED_ARG(auth);
-  return NULL;
-}
-
 static bool security_object_valid(SecurityObject *obj, SecurityObjectKind_t kind) {
   if (!obj) {
     DBG_ERR("security_object_valid: obj is NULL\n");
@@ -596,7 +591,6 @@ DDS_Security_ValidationResult_t validate_local_identity(
   dds_time_t certExpiry = DDS_TIME_INVALID;
 
   /* PQ crypto specific variables */
-  OSSL_LIB_CTX *oqs_ctx = get_oqs_context(implementation);
 
   /* Load standard identity certificate properties */
   if (!(identityCertPEM = DDS_Security_Property_get_value(&participant_qos->property.value,
@@ -635,7 +629,7 @@ DDS_Security_ValidationResult_t validate_local_identity(
   trusted_ca_dir = DDS_Security_Property_get_value(&participant_qos->property.value,
                                                    DDS_SEC_PROP_ACCESS_TRUSTED_CA_DIR);
   if (trusted_ca_dir && strlen(trusted_ca_dir) > 0) {
-    if (get_trusted_ca_list(trusted_ca_dir, &(implementation->trustedCAList), oqs_ctx, ex) !=
+    if (get_trusted_ca_list(trusted_ca_dir, &(implementation->trustedCAList), ex) !=
         DDS_SECURITY_VALIDATION_OK) {
       DBG_ERR("Failed to load trusted CA list from directory '%s'\n", trusted_ca_dir);
       goto err_inv_trusted_ca_dir;
@@ -647,8 +641,7 @@ DDS_Security_ValidationResult_t validate_local_identity(
                                            ORG_ECLIPSE_CYCLONEDDS_SEC_AUTH_CRL);
 
   DBG_TRACE("Loading identity CA certificate\n");
-  if (load_X509_certificate(identityCaPEM, &identityCA, oqs_ctx, ex) !=
-      DDS_SECURITY_VALIDATION_OK) {
+  if (load_X509_certificate(identityCaPEM, &identityCA, ex) != DDS_SECURITY_VALIDATION_OK) {
     DBG_ERR("Failed to load identity CA certificate in "
             "validate_local_identity\n");
     goto err_inv_identity_ca;
@@ -691,15 +684,14 @@ DDS_Security_ValidationResult_t validate_local_identity(
   }
 
   DBG_TRACE("Loading identity certificate\n");
-  if (load_X509_certificate(identityCertPEM, &identityCert, oqs_ctx, ex) !=
-      DDS_SECURITY_VALIDATION_OK) {
+  if (load_X509_certificate(identityCertPEM, &identityCert, ex) != DDS_SECURITY_VALIDATION_OK) {
     DBG_ERR("Failed to load identity certificate in validate_local_identity\n");
     goto err_inv_identity_cert;
   }
   DBG_TRACE("Loaded identity certificate\n");
 
   DBG_TRACE("Loading private key\n");
-  if (load_X509_private_key(privateKeyPEM, password, &privateKey, oqs_ctx, ex) !=
+  if (load_X509_private_key(privateKeyPEM, password, &privateKey, ex) !=
       DDS_SECURITY_VALIDATION_OK) {
     DBG_ERR("Failed to load private key in validate_local_identity\n");
     goto err_inv_private_key;
@@ -724,8 +716,7 @@ DDS_Security_ValidationResult_t validate_local_identity(
   }
 
   DBG_TRACE("Verifying certificate\n");
-  if (verify_certificate(identityCert, identityCA, crl, oqs_ctx, ex) !=
-      DDS_SECURITY_VALIDATION_OK) {
+  if (verify_certificate(identityCert, identityCA, crl, ex) != DDS_SECURITY_VALIDATION_OK) {
     DBG_ERR("Certificate verification failed in validate_local_identity\n");
     goto err_verification_failed;
   }
@@ -1604,7 +1595,6 @@ find_required_binprop_exactsize(const DDS_Security_HandshakeMessageToken *token,
 static X509 *load_X509_certificate_from_binprop(const DDS_Security_BinaryProperty_t *prop,
                                                 X509 *own_ca, X509_CRL *own_crl,
                                                 const X509Seq *trusted_ca_list,
-                                                OSSL_LIB_CTX *oqs_libctx,
                                                 DDS_Security_SecurityException *ex) {
   DBG_TRACE("Entering load_X509_certificate_from_binprop (name='%s', length=%" PRIu32 ")\n",
             prop->name, prop->value._length);
@@ -1619,7 +1609,7 @@ static X509 *load_X509_certificate_from_binprop(const DDS_Security_BinaryPropert
   X509 *cert = NULL;
   DBG_TRACE("Calling load_X509_certificate_from_data\n");
   if (load_X509_certificate_from_data((char *)prop->value._buffer, (int)prop->value._length, &cert,
-                                      oqs_libctx, ex) != DDS_SECURITY_VALIDATION_OK) {
+                                      ex) != DDS_SECURITY_VALIDATION_OK) {
     DBG_ERR("load_X509_certificate_from_data failed\n");
     return NULL;
   }
@@ -1628,7 +1618,7 @@ static X509 *load_X509_certificate_from_binprop(const DDS_Security_BinaryPropert
   DDS_Security_ValidationResult_t result = DDS_SECURITY_VALIDATION_FAILED;
   if (trusted_ca_list->length == 0) {
     DBG_TRACE("Verifying certificate against own CA/CRL\n");
-    result = verify_certificate(cert, own_ca, own_crl, oqs_libctx, ex);
+    result = verify_certificate(cert, own_ca, own_crl, ex);
   } else {
     DBG_TRACE("Verifying certificate against trusted CA list (length=%u)\n",
               trusted_ca_list->length);
@@ -1636,7 +1626,7 @@ static X509 *load_X509_certificate_from_binprop(const DDS_Security_BinaryPropert
     for (unsigned i = 0; i < trusted_ca_list->length; ++i) {
       DBG_TRACE("Attempting verification with trusted CA index %u\n", i);
       DDS_Security_Exception_reset(ex);
-      if ((result = verify_certificate(cert, trusted_ca_list->buffer[i], NULL, oqs_libctx, ex)) ==
+      if ((result = verify_certificate(cert, trusted_ca_list->buffer[i], NULL, ex)) ==
           DDS_SECURITY_VALIDATION_OK) {
         DBG_TRACE("Verification succeeded with trusted CA index %u\n", i);
         break;
@@ -1665,8 +1655,7 @@ static X509 *load_X509_certificate_from_binprop(const DDS_Security_BinaryPropert
 static DDS_Security_ValidationResult_t
 validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
                               enum handshake_token_type token_type, HandshakeInfo *handshake,
-                              X509Seq *trusted_ca_list, dds_security_authentication_impl *auth_impl,
-                              DDS_Security_SecurityException *ex) {
+                              X509Seq *trusted_ca_list, DDS_Security_SecurityException *ex) {
   DBG_TRACE("Entering validate_handshake_token_impl (token_type=%d)\n", token_type);
   IdentityRelation *const relation = handshake->relation;
   X509 *identityCert = NULL;
@@ -1678,7 +1667,6 @@ validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
   const DDS_Security_BinaryProperty_t *challenge1 = NULL, *challenge2 = NULL;
   const DDS_Security_BinaryProperty_t *signature = NULL;
   const DDS_Security_BinaryProperty_t *kem_ciphertext = NULL;
-  OSSL_LIB_CTX *oqs_ctx = get_oqs_context(auth_impl);
 
   const char *token_class_id = NULL;
   DBG_INFO("validate_handshake_token_impl() called\n");
@@ -1727,7 +1715,7 @@ validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
 
     if ((identityCert = load_X509_certificate_from_binprop(
              c_id, relation->localIdentity->identityCA, relation->localIdentity->crl,
-             trusted_ca_list, oqs_ctx, ex)) == NULL) {
+             trusted_ca_list, ex)) == NULL) {
       DBG_ERR("Failed to load identity certificate from C_ID\n");
       return DDS_SECURITY_VALIDATION_FAILED;
     }
@@ -1985,7 +1973,7 @@ validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
                           &kem_ciphertext->value);
     DDS_Security_ValidationResult_t result =
         validate_pq_signature(public_key, transcript.items, PQSEC_TRANSCRIPT_SIZE,
-                              signature->value._buffer, signature->value._length, ex, oqs_ctx);
+                              signature->value._buffer, signature->value._length, ex);
     EVP_PKEY_free(public_key);
     if (result != DDS_SECURITY_VALIDATION_OK) {
       DBG_ERR("PQ signature validation failed for REPLY token\n");
@@ -2024,7 +2012,7 @@ validate_final_token(const DDS_Security_HandshakeMessageToken *token,
 
   final_transcript(handshake, &transcript);
   result = validate_pq_signature(public_key, transcript.items, PQSEC_TRANSCRIPT_SIZE,
-                                 signature->value._buffer, signature->value._length, ex, NULL);
+                                 signature->value._buffer, signature->value._length, ex);
   EVP_PKEY_free(public_key);
   return result;
 }
@@ -2032,11 +2020,10 @@ validate_final_token(const DDS_Security_HandshakeMessageToken *token,
 static DDS_Security_ValidationResult_t
 validate_handshake_token(const DDS_Security_HandshakeMessageToken *token,
                          enum handshake_token_type token_type, HandshakeInfo *handshake,
-                         X509Seq *trusted_ca_list, dds_security_authentication_impl *auth_impl,
-                         DDS_Security_SecurityException *ex) {
+                         X509Seq *trusted_ca_list, DDS_Security_SecurityException *ex) {
   DBG_TRACE("Entering validate_handshake_token\n");
   const DDS_Security_ValidationResult_t ret =
-      validate_handshake_token_impl(token, token_type, handshake, trusted_ca_list, auth_impl, ex);
+      validate_handshake_token_impl(token, token_type, handshake, trusted_ca_list, ex);
 
   if (ret != DDS_SECURITY_VALIDATION_OK) {
     DBG_ERR("validate_handshake_token_impl failed with code %d\n", ret);
@@ -2098,7 +2085,6 @@ begin_handshake_reply(dds_security_authentication *instance,
   uint32_t certDataSize;
 
   const DDS_Security_BinaryProperty_t *binary_property_kem_public;
-  OSSL_LIB_CTX *oqs_ctx = get_oqs_context(impl);
   HashValue_t previous_hash_c1;
   uint32_t tokcount = impl->include_optional ? 11 : 9;
   int created = 0;
@@ -2160,7 +2146,7 @@ begin_handshake_reply(dds_security_authentication *instance,
   memcpy(previous_hash_c1, handshake->hash_c1, sizeof(HashValue_t));
 
   if (validate_handshake_token(handshake_message_in, HS_TOKEN_REQ, handshake,
-                               &(impl->trustedCAList), impl, ex) != DDS_SECURITY_VALIDATION_OK) {
+                               &(impl->trustedCAList), ex) != DDS_SECURITY_VALIDATION_OK) {
     DBG_ERR("Handshake token validation failed in begin_handshake_reply\n");
     goto err_inv_token;
   }
@@ -2290,8 +2276,7 @@ begin_handshake_reply(dds_security_authentication *instance,
                           relation->rchallenge->value, relation->lchallenge->value, &kem_public,
                           &kem_ciphertext);
     if (create_pq_signature(localIdent->privateKey, transcript.items, PQSEC_TRANSCRIPT_SIZE,
-                            &kem_signature, &kem_signature_len, ex, NULL, localIdent->dsignAlgoKind,
-                            oqs_ctx) != DDS_SECURITY_VALIDATION_OK) {
+                            &kem_signature, &kem_signature_len, ex) != DDS_SECURITY_VALIDATION_OK) {
       DBG_ERR("ML-DSA signature creation failed\n");
       goto err_signature;
     }
@@ -2408,7 +2393,6 @@ process_handshake(dds_security_authentication *instance,
   SecurityObject *obj;
 
   /* PQ variables */
-  OSSL_LIB_CTX *oqs_ctx = get_oqs_context(impl);
   const DDS_Security_BinaryProperty_t *kem_ciphertext;
   const uint32_t tsz = 1;
   DBG_CRYPTO("Using post-quantum crypto mode\n");
@@ -2440,7 +2424,7 @@ process_handshake(dds_security_authentication *instance,
     /* PQ: Handle REPLY token processing for REQUEST creator */
     {
       if (validate_handshake_token(handshake_message_in, HS_TOKEN_REPLY, handshake,
-                                   &(impl->trustedCAList), impl, ex) != DDS_SECURITY_VALIDATION_OK)
+                                   &(impl->trustedCAList), ex) != DDS_SECURITY_VALIDATION_OK)
         goto err_inv_token;
 
       kem_ciphertext = DDS_Security_DataHolder_find_binary_property(
@@ -2486,9 +2470,8 @@ process_handshake(dds_security_authentication *instance,
 
         final_transcript(handshake, &transcript);
         if (create_pq_signature(relation->localIdentity->privateKey, transcript.items,
-                                PQSEC_TRANSCRIPT_SIZE, &kem_signature, &kem_signature_len, ex, NULL,
-                                relation->localIdentity->dsignAlgoKind,
-                                oqs_ctx) != DDS_SECURITY_VALIDATION_OK) {
+                                PQSEC_TRANSCRIPT_SIZE, &kem_signature, &kem_signature_len,
+                                ex) != DDS_SECURITY_VALIDATION_OK) {
           DBG_ERR("ML-DSA signature creation failed\n");
           ddsrt_free(tokens);
           goto err_signature;
