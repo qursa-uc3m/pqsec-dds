@@ -89,8 +89,6 @@ private:
                                    std::unique_ptr<OpenDDS::Security::SSL::Certificate>&,
                                    DDS::OctetSeq&, DDS::Security::SecurityException&);
 
-  // Declared first so the provider remains loaded until all EVP keys are gone.
-  ProviderFallback fallback_provider_;
   mutable std::mutex mutex_;
   CORBA::Long next_handle_;
   std::map<DDS::Security::IdentityHandle, LocalPtr> locals_;

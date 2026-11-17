@@ -6,30 +6,12 @@
 #define OPENDDS_PQSEC_CRYPTO_H
 
 #include <openssl/evp.h>
-#include <openssl/provider.h>
 
 #include <memory>
-#include <mutex>
 #include <string>
 #include <vector>
 
 namespace OpenDDS_PQSec {
-
-class ProviderFallback {
-public:
-  ProviderFallback();
-  ~ProviderFallback();
-
-  bool ensure_algorithm(const std::string& algorithm, std::string& error,
-                        const std::string& provider = "oqsprovider");
-
-private:
-  ProviderFallback(const ProviderFallback&);
-  ProviderFallback& operator=(const ProviderFallback&);
-
-  std::mutex mutex_;
-  OSSL_PROVIDER* provider_;
-};
 
 struct PkeyDeleter {
   void operator()(EVP_PKEY* value) const {
@@ -63,7 +45,6 @@ private:
   PkeyPtr key_;
 };
 
-bool openssl_supports(const std::string& algorithm);
 std::string openssl_errors(const std::string& prefix);
 
 // HKDF-SHA-256 of the KEM secret, bound to the hash of the final transcript.

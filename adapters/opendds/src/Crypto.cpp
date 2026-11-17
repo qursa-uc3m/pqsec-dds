@@ -13,35 +13,6 @@
 
 namespace OpenDDS_PQSec {
 
-ProviderFallback::ProviderFallback() : provider_(0) {}
-
-ProviderFallback::~ProviderFallback() {
-  if (provider_)
-    OSSL_PROVIDER_unload(provider_);
-}
-
-bool ProviderFallback::ensure_algorithm(const std::string& algorithm, std::string& error,
-                                        const std::string& provider) {
-  std::lock_guard<std::mutex> guard(mutex_);
-  if (openssl_supports(algorithm))
-    return true;
-  if (provider.empty()) {
-    error = "OpenSSL does not expose " + algorithm + " and no fallback provider is configured";
-    return false;
-  }
-  if (!provider_)
-    provider_ = OSSL_PROVIDER_try_load(0, provider.c_str(), 1);
-  if (!provider_) {
-    error = openssl_errors("Failed to load OpenSSL provider " + provider);
-    return false;
-  }
-  if (!openssl_supports(algorithm)) {
-    error = "OpenSSL provider " + provider + " does not expose " + algorithm;
-    return false;
-  }
-  return true;
-}
-
 std::string openssl_errors(const std::string& prefix) {
   std::ostringstream out;
   out << prefix;
@@ -52,16 +23,6 @@ std::string openssl_errors(const std::string& prefix) {
     out << ": " << text;
   }
   return out.str();
-}
-
-bool openssl_supports(const std::string& algorithm) {
-  EVP_PKEY_CTX* context = EVP_PKEY_CTX_new_from_name(0, algorithm.c_str(), 0);
-  if (!context) {
-    ERR_clear_error();
-    return false;
-  }
-  EVP_PKEY_CTX_free(context);
-  return true;
 }
 
 Kem::Kem(const std::string& algorithm) : algorithm_(algorithm) {}
@@ -89,22 +50,10 @@ bool Kem::import_public(const std::vector<unsigned char>& public_key, std::strin
     error = "ML-KEM public key is empty";
     return false;
   }
-  EVP_PKEY_CTX* context = EVP_PKEY_CTX_new_from_name(0, algorithm_.c_str(), 0);
-  EVP_PKEY* imported = 0;
-  OSSL_PARAM parameters[] = {OSSL_PARAM_construct_octet_string(
-                                 OSSL_PKEY_PARAM_ENCODED_PUBLIC_KEY,
-                                 const_cast<unsigned char*>(&public_key[0]), public_key.size()),
-                             OSSL_PARAM_construct_end()};
-  const bool from_data =
-      context && EVP_PKEY_fromdata_init(context) == 1 &&
-      EVP_PKEY_fromdata(context, &imported, EVP_PKEY_PUBLIC_KEY, parameters) == 1;
-  EVP_PKEY_CTX_free(context);
-  if (!from_data) {
-    EVP_PKEY_free(imported);
-    ERR_clear_error();
-    imported =
-        EVP_PKEY_new_raw_public_key_ex(0, algorithm_.c_str(), 0, &public_key[0], public_key.size());
-  }
+  // OpenSSL runs the FIPS 203 encapsulation key check on import. A hybrid key
+  // with a low-order X25519 share is refused when encapsulating to it.
+  EVP_PKEY* imported =
+      EVP_PKEY_new_raw_public_key_ex(0, algorithm_.c_str(), 0, &public_key[0], public_key.size());
   if (!imported) {
     error = openssl_errors("ML-KEM public-key import failed");
     return false;
@@ -119,24 +68,13 @@ bool Kem::public_key(std::vector<unsigned char>& result, std::string& error) con
     return false;
   }
   unsigned char* encoded = 0;
-  size_t size = EVP_PKEY_get1_encoded_public_key(key_.get(), &encoded);
-  if (size) {
-    result.assign(encoded, encoded + size);
-    OPENSSL_free(encoded);
-    return true;
-  }
-
-  ERR_clear_error();
-  if (EVP_PKEY_get_raw_public_key(key_.get(), 0, &size) != 1 || !size) {
-    error = openssl_errors("ML-KEM public-key size query failed");
-    return false;
-  }
-  result.resize(size);
-  if (EVP_PKEY_get_raw_public_key(key_.get(), &result[0], &size) != 1) {
+  const size_t size = EVP_PKEY_get1_encoded_public_key(key_.get(), &encoded);
+  if (!size) {
     error = openssl_errors("ML-KEM public-key export failed");
     return false;
   }
-  result.resize(size);
+  result.assign(encoded, encoded + size);
+  OPENSSL_free(encoded);
   return true;
 }
 

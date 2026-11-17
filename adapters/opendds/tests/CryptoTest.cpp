@@ -7,7 +7,7 @@
 #include <openssl/crypto.h>
 #include <openssl/evp.h>
 
-#include <cstdlib>
+#include <algorithm>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -79,33 +79,78 @@ bool test_signature(const char* algorithm) {
   return ok;
 }
 
+// A replier must refuse an encapsulation key that fails the FIPS 203 check,
+// and for the hybrid one whose X25519 share is a low-order point.
+bool test_invalid_public_keys() {
+  std::string error;
+  OpenDDS_PQSec::Kem mlkem("ML-KEM-768");
+  if (mlkem.import_public(std::vector<unsigned char>(1184, 0xff), error)) {
+    std::cerr << "ML-KEM-768 key with coefficients above q was accepted\n";
+    return false;
+  }
+
+  OpenDDS_PQSec::Kem hybrid("X25519MLKEM768");
+  std::vector<unsigned char> key;
+  if (!hybrid.generate(error) || !hybrid.public_key(key, error)) {
+    std::cerr << error << '\n';
+    return false;
+  }
+  std::fill(key.end() - 32, key.end(), 0);
+  OpenDDS_PQSec::Kem peer("X25519MLKEM768");
+  std::vector<unsigned char> ciphertext, secret;
+  if (peer.import_public(key, error) && peer.encapsulate(ciphertext, secret, error)) {
+    std::cerr << "encapsulated to an X25519MLKEM768 key with a zero X25519 share\n";
+    return false;
+  }
+  return true;
+}
+
+// The X25519 part of a hybrid ciphertext is checked; the ML-KEM part is not,
+// because ML-KEM decapsulation of a wrong ciphertext returns a different key.
+bool test_invalid_ciphertexts() {
+  std::string error;
+  OpenDDS_PQSec::Kem initiator("X25519MLKEM768");
+  std::vector<unsigned char> key, ciphertext, secret, decapsulated;
+  OpenDDS_PQSec::Kem replier("X25519MLKEM768");
+  if (!initiator.generate(error) || !initiator.public_key(key, error) ||
+      !replier.import_public(key, error) || !replier.encapsulate(ciphertext, secret, error)) {
+    std::cerr << error << '\n';
+    return false;
+  }
+
+  std::vector<unsigned char> zero_share(ciphertext);
+  std::fill(zero_share.end() - 32, zero_share.end(), 0);
+  if (initiator.decapsulate(zero_share, decapsulated, error)) {
+    std::cerr << "X25519MLKEM768 ciphertext with a zero X25519 share was accepted\n";
+    return false;
+  }
+  std::vector<unsigned char> short_ciphertext(ciphertext.begin(), ciphertext.end() - 1);
+  if (initiator.decapsulate(short_ciphertext, decapsulated, error)) {
+    std::cerr << "short X25519MLKEM768 ciphertext was accepted\n";
+    return false;
+  }
+
+  std::vector<unsigned char> altered(ciphertext);
+  altered[0] ^= 1;
+  if (!initiator.decapsulate(altered, decapsulated, error) || decapsulated == secret) {
+    std::cerr << "altered ML-KEM ciphertext did not decapsulate to a different key\n";
+    return false;
+  }
+  return true;
+}
+
 } // namespace
 
 int main() {
-  const char* kems[] = {"ML-KEM-512", "ML-KEM-768", "ML-KEM-1024", "X25519MLKEM768",
-                        "SecP256r1MLKEM768"};
-  const char* signatures[] = {"ML-DSA-44", "ML-DSA-65", "ML-DSA-87"};
+  const char* kems[] = {"ML-KEM-768", "ML-KEM-1024", "X25519MLKEM768"};
+  const char* signatures[] = {"ML-DSA-65", "ML-DSA-87"};
   for (size_t i = 0; i != sizeof kems / sizeof kems[0]; ++i) {
     if (!test_kem(kems[i]))
       return 1;
-  }
-  if (std::getenv("PQSEC_TEST_OQS_PROVIDER")) {
-    const char* provider_name = std::getenv("PQSEC_OPENSSL_PROVIDER");
-    OpenDDS_PQSec::ProviderFallback provider;
-    std::string error;
-    const char* experimental_kems[] = {"frodo640shake", "bikel1", "hqc128"};
-    for (size_t i = 0; i != sizeof experimental_kems / sizeof experimental_kems[0]; ++i) {
-      if (!provider.ensure_algorithm(experimental_kems[i], error,
-                                     provider_name ? provider_name : "oqsprovider") ||
-          !test_kem(experimental_kems[i])) {
-        std::cerr << error << '\n';
-        return 1;
-      }
-    }
   }
   for (size_t i = 0; i != sizeof signatures / sizeof signatures[0]; ++i) {
     if (!test_signature(signatures[i]))
       return 1;
   }
-  return 0;
+  return test_invalid_public_keys() && test_invalid_ciphertexts() ? 0 : 1;
 }

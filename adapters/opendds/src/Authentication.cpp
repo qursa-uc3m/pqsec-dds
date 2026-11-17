@@ -17,7 +17,6 @@
 #include <dds/DCPS/security/framework/Properties.h>
 
 #include <cstring>
-#include <cstdlib>
 #include <utility>
 
 #include <openssl/crypto.h>
@@ -35,7 +34,6 @@ const char REPLY_CLASS_ID[] = "pqsec-dds.auth:1.1+Reply";
 const char FINAL_CLASS_ID[] = "pqsec-dds.auth:1.1+Final";
 const char DEFAULT_KEM[] = "X25519MLKEM768";
 const char KEM_PROPERTY[] = "pqsec-dds.kem";
-const char PROVIDER_PROPERTY[] = "pqsec-dds.provider";
 const char KEM_PUBLIC_PROPERTY[] = "pqsec-dds.kem_public";
 const char KEM_CIPHERTEXT_PROPERTY[] = "pqsec-dds.kem_ciphertext";
 
@@ -57,13 +55,11 @@ std::string string_value(const DDS::OctetSeq& value) {
 }
 
 bool mldsa_algorithm(const std::string& value) {
-  return value == "ML-DSA-44" || value == "ML-DSA-65" || value == "ML-DSA-87";
+  return value == "ML-DSA-65" || value == "ML-DSA-87";
 }
 
 bool kem_algorithm(const std::string& value) {
-  return value == "ML-KEM-512" || value == "ML-KEM-768" || value == "ML-KEM-1024" ||
-         value == "X25519MLKEM768" || value == "SecP256r1MLKEM768" || value == "frodo640shake" ||
-         value == "bikel1" || value == "hqc128";
+  return value == "ML-KEM-768" || value == "ML-KEM-1024" || value == "X25519MLKEM768";
 }
 
 bool initiator(const OpenDDS::DCPS::GUID_t& local, const OpenDDS::DCPS::GUID_t& remote) {
@@ -228,24 +224,12 @@ DDS::Security::ValidationResult_t Authentication::validate_local_identity(
   }
 
   std::string selected_kem = DEFAULT_KEM;
-  std::string selected_provider = "oqsprovider";
-  const char* environment_provider = std::getenv("PQSEC_OPENSSL_PROVIDER");
-  if (environment_provider)
-    selected_provider = environment_provider;
   for (CORBA::ULong i = 0; i != qos.property.value.length(); ++i) {
-    if (std::strcmp(qos.property.value[i].name.in(), KEM_PROPERTY) == 0) {
+    if (std::strcmp(qos.property.value[i].name.in(), KEM_PROPERTY) == 0)
       selected_kem = qos.property.value[i].value.in();
-    } else if (std::strcmp(qos.property.value[i].name.in(), PROVIDER_PROPERTY) == 0) {
-      selected_provider = qos.property.value[i].value.in();
-    }
   }
-  std::string provider_error;
   if (!kem_algorithm(selected_kem)) {
     fail(ex, "PQSec requested an unsupported KEM algorithm: " + selected_kem);
-    return DDS::Security::VALIDATION_FAILED;
-  }
-  if (!fallback_provider_.ensure_algorithm(selected_kem, provider_error, selected_provider)) {
-    fail(ex, "PQSec requested an unavailable KEM algorithm: " + provider_error);
     return DDS::Security::VALIDATION_FAILED;
   }
   if (OpenDDS::Security::SSL::make_adjusted_guid(candidate, adjusted,

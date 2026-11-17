@@ -4,9 +4,11 @@ This directory contains an external C++ DDS Security Authentication plugin for
 OpenDDS. It uses OpenSSL EVP with the native provider implementations in
 OpenSSL 3.6 or newer:
 
-- X25519MLKEM768 (default), or pure ML-KEM-512/768/1024, for the shared secret
-- ML-DSA-44, ML-DSA-65, or ML-DSA-87 X.509 identity certificates for mutual
+- X25519MLKEM768 (default), ML-KEM-768 or ML-KEM-1024 for the shared secret
+- ML-DSA-65 or ML-DSA-87 X.509 identity certificates for mutual
   authentication
+
+No other OpenSSL provider is loaded.
 
 It deliberately implements only `DDS::Security::Authentication`.  OpenDDS
 composes it with its built-in Access Control, Cryptographic, and Utility plugins.
@@ -85,8 +87,8 @@ cmake --build adapters/opendds/build -j
 ctest --test-dir adapters/opendds/build --output-on-failure
 ```
 
-The tests cover all three native ML-KEM parameter sets, X25519MLKEM768, all three
-native ML-DSA parameter sets, the shared protocol vectors, a complete two-peer
+The tests cover the three KEMs and two ML-DSA parameter sets above, OpenSSL's
+rejection of invalid encapsulation keys and hybrid X25519 shares, the shared protocol vectors, a complete two-peer
 Authentication handshake using ML-DSA X.509 certificates and the hybrid KEM,
 shared-secret equality, tampered signatures, a substituted KEM public key or
 ciphertext, altered credentials, KEM and challenge mismatches, certificates from
@@ -121,24 +123,10 @@ documents can continue to use an algorithm supported by OpenDDS's built-in Acces
 Control plugin.
 
 The optional participant QoS property
-`pqsec-dds.kem` selects `X25519MLKEM768` (the default),
-`SecP256r1MLKEM768`, `ML-KEM-512`, `ML-KEM-768`, or `ML-KEM-1024`. It can also
-select the oqs-provider algorithms `frodo640shake`, `bikel1`, or `hqc128`.
-`X25519MLKEM768` is OpenSSL's
-native TLS-style hybrid KEM and combines X25519 with ML-KEM-768 inside the
-provider.  Both peers must select the same value; mismatches fail closed.
-
-Native algorithms do not cause oqs-provider to be loaded. If an experimental
-algorithm is unavailable, the adapter lazily loads `oqsprovider`. The optional
-QoS property `pqsec-dds.provider` or environment variable
-`PQSEC_OPENSSL_PROVIDER` changes that name. `OPENSSL_MODULES` specifies the
-module directory. The adapter never includes or links liboqs; liboqs is an
-implementation detail of oqs-provider. The provider must be built against the
-same OpenSSL installation as OpenDDS and this plugin.
-
-The provider name and module search path are trusted process configuration,
-like `LD_LIBRARY_PATH`: an attacker who can change them can select native code
-loaded into the process.
+`pqsec-dds.kem` selects `X25519MLKEM768` (the default), `ML-KEM-768` or
+`ML-KEM-1024`. `X25519MLKEM768` is OpenSSL's native TLS-style hybrid KEM and
+combines X25519 with ML-KEM-768 inside the provider.  Both peers must select
+the same value; mismatches fail closed.
 
 The governance document must keep `allow_unauthenticated_participants` disabled.
 Built-in PKI-DH peers intentionally fail PQSec authentication; allowing them to
