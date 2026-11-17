@@ -1,9 +1,10 @@
 # PQSec-DDS for CycloneDDS
 
 This adapter is an external DDS Security Authentication plugin for CycloneDDS.
-It is based on CycloneDDS's built-in PKI-DH plugin, with the experimental
-post-quantum handshake [`pqsec-dds.auth:1.1`](../../protocol/pqsec-auth-v1.md)
-shared with the OpenDDS adapter.
+It is based on CycloneDDS's built-in PKI-DH plugin and implements
+DDS:Auth:PKI-DH with ML-KEM and ML-DSA as additional algorithms, as described
+in [protocol/pkidh-mlkem.md](../../protocol/pkidh-mlkem.md). The OpenDDS
+adapter implements the same profile.
 
 The implementation was originally developed by Javier Blanco-Romero and Adrián
 Serrano Navarro. Earlier experimental releases called liboqs directly. The
@@ -30,7 +31,21 @@ OpenSSL 3.6 is needed for the tested native hybrid KEMs.
   --kem mlkem768
 ```
 
-KEM selections are `mlkem768`, `mlkem1024` and `x25519_mlkem768`.
+`--kem` sets the KEM used when this participant initiates and the value of
+`AUTO`: `mlkem768`, `mlkem1024` or `x25519_mlkem768`. The participant QoS
+property `dds.sec.auth.key_establishment_algorithm` (DDS Security 1.2,
+10.3.1.4) overrides it at run time with `ML-KEM-768`, `ML-KEM-1024` or
+`X25519MLKEM768`.
+
+## Protocol
+
+Tokens, class ids, properties and signed transcripts are those of PKI-DH.
+`dh1` carries the initiator's encapsulation key and `dh2` the replier's
+ciphertext, and `SharedSecret` is SHA-256 of the KEM secret. The initiator
+chooses the KEM; the replier accepts any of the three and answers with the same
+one. A classical algorithm in `c.kagree_algo` is refused. Echoed `dh1`, `dh2`,
+`hash_c1` and `hash_c2` are optional, and must equal the local values when
+present.
 
 ## Certificates
 
@@ -47,15 +62,16 @@ OPENSSL=/path/to/openssl certs/generate_certs.sh
 The CTest suite covers the three KEMs, OpenSSL's rejection of malformed or
 invalid encapsulation keys and of hybrid X25519 shares, ML-DSA transcript signing and tamper rejection, and the
 shared protocol vectors. The handshake test drives two plugin instances through
-a complete handshake and checks that they derive the same secret, that a
-substituted KEM public key or ciphertext, altered credentials, a tampered Final
-and classical identities are rejected, and that a repeated Request is handled
-correctly.
+complete handshakes for each KEM and checks that they derive the same secret,
+that the replier follows the initiator's KEM, that a substituted `dh1` or
+`dh2`, altered credentials, a tampered or mismatched Final, echoes that differ
+from the local values, classical algorithms and classical identities are
+rejected, and that a repeated Request is handled correctly.
 
-Both peers must use the same KEM selection. The OpenDDS adapter implements the
-same protocol and passes the same vectors, but the two adapters have not yet
-been run against each other. Note that this adapter defaults to `mlkem768` and
-the OpenDDS adapter to `X25519MLKEM768`.
+The OpenDDS adapter implements the same profile and passes the same vectors,
+but the two adapters have not yet been run against each other. This adapter
+defaults to `mlkem768` and the OpenDDS adapter to `X25519MLKEM768`; since the
+initiator chooses, mixed defaults still interoperate.
 
 ## Attribution
 

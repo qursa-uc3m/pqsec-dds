@@ -13,15 +13,14 @@
 #define DDS_SECURITY_AUTH_TOKENS_H
 
 // IdentityToken
-#define DDS_AUTHTOKEN_CLASS_ID "pqsec-dds.auth:1.1"
+#define DDS_AUTHTOKEN_CLASS_ID "DDS:Auth:PKI-DH:1.0"
 #define DDS_AUTHTOKEN_PROP_CERT_SN "dds.cert.sn"
 #define DDS_AUTHTOKEN_PROP_CERT_ALGO "dds.cert.algo"
 #define DDS_AUTHTOKEN_PROP_CA_SN "dds.ca.sn"
 #define DDS_AUTHTOKEN_PROP_CA_ALGO "dds.ca.algo"
 
-// Domain separators in hashed and signed data
-#define DDS_AUTHTOKEN_PROP_PROTOCOL "pqsec-dds.protocol"
-#define DDS_AUTHTOKEN_PROP_ROLE "pqsec-dds.role"
+// DDS Security 1.2, 10.3.1.4
+#define PQSEC_PROP_KEY_ESTABLISHMENT "dds.sec.auth.key_establishment_algorithm"
 
 // IdentityStatusToken
 // #define DDS_AUTHTOKEN_CLASS_ID "DDS:Auth:PKI-DH:1.0"
@@ -43,7 +42,6 @@
 #define DDS_AUTHTOKEN_PROP_C_PDATA "c.pdata"
 #define DDS_AUTHTOKEN_PROP_C_DSIGN_ALGO "c.dsign_algo"
 #define DDS_AUTHTOKEN_PROP_C_KAGREE_ALGO "c.kagree_algo"
-#define DDS_AUTHTOKEN_PROP_KEM_PUBLIC "pqsec-dds.kem_public"
 #define DDS_AUTHTOKEN_PROP_HASH_C1 "hash_c1"
 #define DDS_AUTHTOKEN_PROP_DH1 "dh1"
 #define DDS_AUTHTOKEN_PROP_CHALLENGE1 "challenge1"
@@ -58,7 +56,6 @@
 // #define DDS_AUTHTOKEN_PROP_C_KAGREE_ALGO "c.kagree_algo"
 #define DDS_AUTHTOKEN_PROP_HASH_C2 "hash_c2"
 #define DDS_AUTHTOKEN_PROP_DH2 "dh2"
-#define DDS_AUTHTOKEN_PROP_KEM_CIPHERTEXT "pqsec-dds.kem_ciphertext"
 // #define DDS_AUTHTOKEN_PROP_HASH_C1 "hash_c1"
 // #define DDS_AUTHTOKEN_PROP_DH1 "dh1"
 // #define DDS_AUTHTOKEN_PROP_CHALLENGE1 "challenge1"

@@ -64,6 +64,7 @@ const char *get_kagree_algo(AuthenticationAlgoKind_t kind);
 // Algorithm selection from names
 AuthenticationAlgoKind_t get_dsign_algo_from_octseq(const DDS_Security_OctetSeq *name);
 AuthenticationAlgoKind_t get_kagree_algo_from_octseq(const DDS_Security_OctetSeq *name);
+AuthenticationAlgoKind_t get_kagree_algo_from_string(const char *name);
 
 // Compile-time selected algorithm functions
 AuthenticationAlgoKind_t get_default_kem_algorithm_kind(void);

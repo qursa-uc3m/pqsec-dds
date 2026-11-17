@@ -41,9 +41,8 @@ void pqsec_kem_secret_free(uint8_t *secret, size_t secret_size);
 
 #define PQSEC_SHARED_SECRET_SIZE 32
 
-/* HKDF-SHA-256 of the KEM secret, bound to the hash of the final transcript. */
-bool pqsec_derive_shared_secret(const uint8_t *kem_secret, size_t kem_secret_size,
-                                const uint8_t transcript_hash[32],
-                                uint8_t shared_secret[PQSEC_SHARED_SECRET_SIZE]);
+/* SharedSecret is SHA-256 of the KEM secret (DDS Security 1.2, 10.3.2.5.2). */
+void pqsec_shared_secret(const uint8_t *kem_secret, size_t kem_secret_size,
+                         uint8_t shared_secret[PQSEC_SHARED_SECRET_SIZE]);
 
 #endif /* PQSEC_DDS_PQ_KEM_H */

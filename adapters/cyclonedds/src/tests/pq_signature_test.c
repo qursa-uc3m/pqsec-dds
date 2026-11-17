@@ -29,7 +29,7 @@ int main(void) {
       .name = "challenge1",
       .value = {._length = sizeof(challenge), ._buffer = (unsigned char *)challenge}};
   DDS_Security_BinaryProperty_t ciphertext_property = {
-      .name = "pqsec-dds.kem_ciphertext",
+      .name = "dh2",
       .value = {._length = sizeof(ciphertext), ._buffer = (unsigned char *)ciphertext}};
   const DDS_Security_BinaryProperty_t *transcript[] = {&challenge_property, &ciphertext_property};
   DDS_Security_SecurityException exception = {0};

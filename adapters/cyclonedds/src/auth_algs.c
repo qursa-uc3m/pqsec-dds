@@ -113,6 +113,15 @@ AuthenticationAlgoKind_t get_kagree_algo_from_octseq(const DDS_Security_OctetSeq
   return find_wire_kind(kem_algorithms, name);
 }
 
+AuthenticationAlgoKind_t get_kagree_algo_from_string(const char *name) {
+  for (size_t i = 0; name && kem_algorithms[i].configuration_name; ++i) {
+    if (strcmp(name, kem_algorithms[i].wire_name) == 0) {
+      return kem_algorithms[i].kind;
+    }
+  }
+  return AUTH_ALGO_KIND_UNKNOWN;
+}
+
 AuthenticationAlgoKind_t get_default_kem_algorithm_kind(void) {
   const AlgorithmInfo *info = find_by_configuration_name(kem_algorithms, SELECTED_KEM_ALGORITHM);
   return info ? info->kind : AUTH_ALGO_KIND_UNKNOWN;

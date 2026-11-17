@@ -135,7 +135,7 @@ if(BUILD_TESTING)
   target_compile_definitions(pqsec_cyclonedds_vector_test PRIVATE
     _POSIX_C_SOURCE=200809L
     SELECTED_KEM_ALGORITHM="${SELECTED_KEM_ALGORITHM}"
-    PQSEC_VECTORS_FILE="${CMAKE_CURRENT_SOURCE_DIR}/../../../tests/vectors/pqsec-auth-1.1.txt")
+    PQSEC_VECTORS_FILE="${CMAKE_CURRENT_SOURCE_DIR}/../../../tests/vectors/pkidh-mlkem.txt")
   if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(pqsec_cyclonedds_vector_test PRIVATE
       -Wall -Wextra -Wpedantic -Werror)

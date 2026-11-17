@@ -143,7 +143,8 @@ static void serialize_participant_data(participant *p) {
   DDS_Security_ParticipantBuiltinTopicData_free(data);
 }
 
-static bool start(participant *p, unsigned char id, const identity *identity) {
+/* kem is the value of dds.sec.auth.key_establishment_algorithm, or NULL. */
+static bool start(participant *p, unsigned char id, const identity *identity, const char *kem) {
   DDS_Security_Qos qos;
   DDS_Security_GUID_t candidate;
   void *context = NULL;
@@ -156,14 +157,18 @@ static bool start(participant *p, unsigned char id, const identity *identity) {
   candidate.entityId.entityKind = 0xc1;
 
   memset(&qos, 0, sizeof qos);
-  qos.property.value._length = qos.property.value._maximum = 3;
-  qos.property.value._buffer = DDS_Security_PropertySeq_allocbuf(3);
+  qos.property.value._length = qos.property.value._maximum = kem ? 4 : 3;
+  qos.property.value._buffer = DDS_Security_PropertySeq_allocbuf(4);
   qos.property.value._buffer[0].name = ddsrt_strdup(DDS_SEC_PROP_AUTH_IDENTITY_CA);
   qos.property.value._buffer[0].value = ddsrt_strdup(identity->ca);
   qos.property.value._buffer[1].name = ddsrt_strdup(DDS_SEC_PROP_AUTH_IDENTITY_CERT);
   qos.property.value._buffer[1].value = ddsrt_strdup(identity->certificate);
   qos.property.value._buffer[2].name = ddsrt_strdup(DDS_SEC_PROP_AUTH_PRIV_KEY);
   qos.property.value._buffer[2].value = ddsrt_strdup(identity->private_key);
+  if (kem) {
+    qos.property.value._buffer[3].name = ddsrt_strdup("dds.sec.auth.key_establishment_algorithm");
+    qos.property.value._buffer[3].value = ddsrt_strdup(kem);
+  }
 
   const bool ok =
       init_authentication(NULL, &context, &gv) == 0 &&
@@ -236,9 +241,14 @@ static DDS_Security_ValidationResult_t process_reply(exchange *e) {
   return process_handshake(e->initiator->auth, &e->final, &e->reply, e->initiator->handshake, &ex);
 }
 
-static bool prepare(exchange *e) {
+static bool prepare_with(exchange *e, const char *kem_a, const char *kem_b) {
   memset(e, 0, sizeof *e);
-  return start(&e->a, 1, &mldsa) && start(&e->b, 2, &mldsa) && introduce(e) && request(e);
+  return start(&e->a, 1, &mldsa, kem_a) && start(&e->b, 2, &mldsa, kem_b) && introduce(e) &&
+         request(e);
+}
+
+static bool prepare(exchange *e) {
+  return prepare_with(e, NULL, NULL);
 }
 
 static void finish(exchange *e) {
@@ -264,6 +274,31 @@ static void replace(DDS_Security_OctetSeq *value, const void *data, size_t size)
   value->_length = value->_maximum = (uint32_t)size;
 }
 
+static void set_string(DDS_Security_OctetSeq *value, const char *text) {
+  replace(value, text, strlen(text) + 1);
+}
+
+static void add(DDS_Security_DataHolder *token, const char *name,
+                const DDS_Security_OctetSeq *value) {
+  const uint32_t length = token->binary_properties._length;
+  DDS_Security_BinaryProperty_t *properties = DDS_Security_BinaryPropertySeq_allocbuf(length + 1);
+  memcpy(properties, token->binary_properties._buffer, length * sizeof *properties);
+  DDS_Security_BinaryProperty_set_by_value(&properties[length], name, value->_buffer,
+                                           value->_length);
+  ddsrt_free(token->binary_properties._buffer);
+  token->binary_properties._buffer = properties;
+  token->binary_properties._length = token->binary_properties._maximum = length + 1;
+}
+
+static DDS_Security_ValidationResult_t process_final(exchange *e,
+                                                     const DDS_Security_HandshakeMessageToken *m) {
+  DDS_Security_HandshakeMessageToken unused = DDS_SECURITY_TOKEN_INIT;
+  const DDS_Security_ValidationResult_t result =
+      process_handshake(e->replier->auth, &unused, m, e->replier->handshake, &ex);
+  DDS_Security_DataHolder_deinit(&unused);
+  return result;
+}
+
 static bool complete(exchange *e) {
   DDS_Security_HandshakeMessageToken unused = DDS_SECURITY_TOKEN_INIT;
   DDS_Security_SharedSecretHandle first, second;
@@ -286,20 +321,143 @@ static bool complete(exchange *e) {
                "shared secrets differ");
 }
 
-static bool happy_path_test(void) {
+static bool happy_path_test(const char *kem) {
   exchange e;
-  const bool ok = prepare(&e) && reply(&e) && complete(&e);
+  const bool ok = prepare_with(&e, kem, kem) && reply(&e) && complete(&e);
   finish(&e);
   return ok;
 }
 
-/* An attacker replaces the initiator's KEM public key with its own.  The
- * replier cannot notice, so the initiator must. */
+/* The replier uses the algorithm the initiator chose, not its own setting. */
+static bool initiator_chooses_test(void) {
+  exchange e;
+  bool ok = prepare_with(&e, "ML-KEM-1024", "ML-KEM-768") && reply(&e) && complete(&e);
+  const DDS_Security_OctetSeq *requested = ok ? property(&e.request, "c.kagree_algo") : NULL;
+  const DDS_Security_OctetSeq *replied = ok ? property(&e.reply, "c.kagree_algo") : NULL;
+  ok = requested && replied &&
+       check(requested->_length == replied->_length &&
+                 memcmp(requested->_buffer, replied->_buffer, requested->_length) == 0,
+             "replier did not use the initiator's algorithm");
+  finish(&e);
+  return ok;
+}
+
+/* A request from a classical PKI-DH participant, under its 1.2 or 1.1 name. */
+static bool classical_request_test(void) {
+  static const char *const names[] = {"ECDHE-CEUM+P256", "ECDH+prime256v1-CEUM", ""};
+  bool ok = true;
+  for (size_t i = 0; ok && i < sizeof names / sizeof names[0]; ++i) {
+    exchange e;
+    ok = prepare(&e);
+    DDS_Security_OctetSeq *algorithm = ok ? property(&e.request, "c.kagree_algo") : NULL;
+    if (algorithm) {
+      set_string(algorithm, names[i]);
+    }
+    ok = algorithm && check(begin_handshake_reply(e.replier->auth, &e.replier->handshake, &e.reply,
+                                                  &e.request, e.replier->remote, e.replier->local,
+                                                  &e.replier->participant_data,
+                                                  &ex) == DDS_SECURITY_VALIDATION_FAILED,
+                            "request with a classical key establishment algorithm was accepted");
+    finish(&e);
+  }
+  return ok;
+}
+
+static bool reply_algorithm_test(void) {
+  exchange e;
+  bool ok = prepare_with(&e, "ML-KEM-768", "ML-KEM-768") && reply(&e);
+  DDS_Security_OctetSeq *algorithm = ok ? property(&e.reply, "c.kagree_algo") : NULL;
+  if (algorithm) {
+    set_string(algorithm, "ML-KEM-1024");
+  }
+  ok = algorithm && check(process_reply(&e) == DDS_SECURITY_VALIDATION_FAILED,
+                          "reply naming another algorithm than the request was accepted");
+  finish(&e);
+  return ok;
+}
+
+/* Echoed values are optional. One that differs from the local value is refused;
+ * one that matches is accepted. */
+static bool reply_echo_test(void) {
+  exchange e;
+  DDS_Security_HandshakeMessageToken genuine = DDS_SECURITY_TOKEN_INIT;
+  DDS_Security_OctetSeq other = DDS_SECURITY_SEQUENCE_INIT;
+  bool ok = prepare(&e) && reply(&e);
+  const DDS_Security_OctetSeq *dh1 = ok ? property(&e.request, "dh1") : NULL;
+  if (dh1) {
+    DDS_Security_DataHolder_copy(&genuine, &e.reply);
+    DDS_Security_OctetSeq_copy(&other, dh1);
+    other._buffer[0] ^= 1;
+    add(&e.reply, "dh1", &other);
+  }
+  ok = dh1 && check(process_reply(&e) == DDS_SECURITY_VALIDATION_FAILED,
+                    "reply echoing a different dh1 was accepted");
+  if (ok) {
+    DDS_Security_DataHolder_deinit(&e.reply);
+    DDS_Security_DataHolder_copy(&e.reply, &genuine);
+    add(&e.reply, "dh1", dh1);
+    ok = check(process_reply(&e) == DDS_SECURITY_VALIDATION_OK_FINAL_MESSAGE,
+               "reply echoing the right dh1 was refused");
+  }
+  DDS_Security_OctetSeq_deinit(&other);
+  DDS_Security_DataHolder_deinit(&genuine);
+  finish(&e);
+  return ok;
+}
+
+static bool final_mismatch_test(void) {
+  exchange e;
+  DDS_Security_HandshakeMessageToken altered = DDS_SECURITY_TOKEN_INIT;
+  DDS_Security_OctetSeq other = DDS_SECURITY_SEQUENCE_INIT;
+  bool ok = prepare(&e) && reply(&e) &&
+            check(process_reply(&e) == DDS_SECURITY_VALIDATION_OK_FINAL_MESSAGE,
+                  "reply processing failed");
+
+  if (ok) {
+    DDS_Security_DataHolder_copy(&altered, &e.final);
+    DDS_Security_OctetSeq *challenge1 = property(&altered, "challenge1");
+    ok = challenge1 && challenge1->_length == 32;
+    if (ok) {
+      challenge1->_buffer[0] ^= 1;
+      ok = check(process_final(&e, &altered) == DDS_SECURITY_VALIDATION_FAILED,
+                 "final with a different challenge1 was accepted");
+    }
+    DDS_Security_DataHolder_deinit(&altered);
+  }
+  if (ok) {
+    DDS_Security_DataHolder_copy(&altered, &e.final);
+    DDS_Security_OctetSeq *challenge2 = property(&altered, "challenge2");
+    ok = challenge2 != NULL;
+    if (ok) {
+      challenge2->_length = 0;
+      ok = check(process_final(&e, &altered) == DDS_SECURITY_VALIDATION_FAILED,
+                 "final without challenge2 was accepted");
+    }
+    DDS_Security_DataHolder_deinit(&altered);
+  }
+  if (ok) {
+    DDS_Security_DataHolder_copy(&altered, &e.final);
+    DDS_Security_OctetSeq_copy(&other, property(&e.reply, "dh2"));
+    other._buffer[0] ^= 1;
+    add(&altered, "dh2", &other);
+    ok = check(process_final(&e, &altered) == DDS_SECURITY_VALIDATION_FAILED,
+               "final echoing a different dh2 was accepted");
+    DDS_Security_DataHolder_deinit(&altered);
+  }
+  ok = ok && check(process_final(&e, &e.final) == DDS_SECURITY_VALIDATION_OK,
+                   "a refused final blocked the genuine one");
+  DDS_Security_OctetSeq_deinit(&other);
+  finish(&e);
+  return ok;
+}
+
+/* An attacker replaces the initiator's dh1 with its own key.  The replier
+ * cannot notice, so the initiator must. */
 static bool substituted_public_key_test(void) {
   exchange e;
   pqsec_kem_keypair *attacker = NULL;
   bool ok = prepare(&e) && pqsec_kem_keypair_generate(get_default_kem_algorithm_kind(), &attacker);
-  DDS_Security_OctetSeq *public_key = ok ? property(&e.request, "pqsec-dds.kem_public") : NULL;
+  DDS_Security_OctetSeq *public_key = ok ? property(&e.request, "dh1") : NULL;
   if (public_key) {
     replace(public_key, attacker->public_key, attacker->public_key_size);
   }
@@ -311,15 +469,14 @@ static bool substituted_public_key_test(void) {
   return ok;
 }
 
-/* An attacker replaces the ciphertext with a valid one of its own. */
+/* An attacker replaces dh2 with a valid ciphertext of its own. */
 static bool substituted_ciphertext_test(void) {
   exchange e;
   uint8_t *ciphertext = NULL, *secret = NULL;
   size_t ciphertext_size = 0, secret_size = 0;
   bool ok = prepare(&e) && reply(&e);
-  DDS_Security_OctetSeq *public_key = ok ? property(&e.request, "pqsec-dds.kem_public") : NULL;
-  DDS_Security_OctetSeq *reply_ciphertext =
-      ok ? property(&e.reply, "pqsec-dds.kem_ciphertext") : NULL;
+  DDS_Security_OctetSeq *public_key = ok ? property(&e.request, "dh1") : NULL;
+  DDS_Security_OctetSeq *reply_ciphertext = ok ? property(&e.reply, "dh2") : NULL;
   ok = public_key && reply_ciphertext &&
        pqsec_kem_encapsulate(get_default_kem_algorithm_kind(), public_key->_buffer,
                              public_key->_length, &ciphertext, &ciphertext_size, &secret,
@@ -377,16 +534,16 @@ static bool retransmission_test(void) {
   DDS_Security_OctetSeq first = DDS_SECURITY_SEQUENCE_INIT;
   bool ok = prepare(&e) && reply(&e);
   if (ok) {
-    DDS_Security_OctetSeq_copy(&first, property(&e.reply, "pqsec-dds.kem_ciphertext"));
+    DDS_Security_OctetSeq_copy(&first, property(&e.reply, "dh2"));
   }
   ok = ok && reply(&e);
-  const DDS_Security_OctetSeq *second = ok ? property(&e.reply, "pqsec-dds.kem_ciphertext") : NULL;
+  const DDS_Security_OctetSeq *second = ok ? property(&e.reply, "dh2") : NULL;
   ok = second &&
        check(second->_length == first._length &&
                  memcmp(second->_buffer, first._buffer, first._length) == 0,
              "retransmitted request got a different ciphertext") &&
        request(&e) && reply(&e);
-  const DDS_Security_OctetSeq *third = ok ? property(&e.reply, "pqsec-dds.kem_ciphertext") : NULL;
+  const DDS_Security_OctetSeq *third = ok ? property(&e.reply, "dh2") : NULL;
   ok = third &&
        check(third->_length != first._length ||
                  memcmp(third->_buffer, first._buffer, first._length) != 0,
@@ -399,10 +556,13 @@ static bool retransmission_test(void) {
 
 static bool classical_identity_test(void) {
   participant p;
-  bool ok = check(!start(&p, 1, &ec_ca), "identity CA with a classical key was accepted");
+  bool ok = check(!start(&p, 1, &ec_ca, NULL), "identity CA with a classical key was accepted");
   stop(&p);
-  ok = ok && check(!start(&p, 1, &ec_participant),
+  ok = ok && check(!start(&p, 1, &ec_participant, NULL),
                    "identity certificate with a classical key was accepted");
+  stop(&p);
+  ok = ok && check(!start(&p, 1, &mldsa, "ECDHE-CEUM+P256"),
+                   "a classical key establishment algorithm was configured");
   stop(&p);
   return ok;
 }
@@ -411,7 +571,8 @@ static bool different_ca_test(void) {
   exchange e;
   memset(&e, 0, sizeof e);
   bool ok =
-      start(&e.a, 1, &mldsa) && start(&e.b, 2, &other_ca) && introduce(&e) && request(&e) &&
+      start(&e.a, 1, &mldsa, NULL) && start(&e.b, 2, &other_ca, NULL) && introduce(&e) &&
+      request(&e) &&
       check(begin_handshake_reply(e.replier->auth, &e.replier->handshake, &e.reply, &e.request,
                                   e.replier->remote, e.replier->local, &e.replier->participant_data,
                                   &ex) == DDS_SECURITY_VALIDATION_FAILED,
@@ -427,10 +588,13 @@ int main(void) {
   make_identity(&ec_ca, "EC", "ML-DSA-65");
   make_identity(&ec_participant, "ML-DSA-65", "EC");
 
-  const bool ok = happy_path_test() && substituted_public_key_test() &&
+  const bool ok = happy_path_test("ML-KEM-768") && happy_path_test("ML-KEM-1024") &&
+                  happy_path_test("X25519MLKEM768") && happy_path_test("AUTO") &&
+                  happy_path_test(NULL) && substituted_public_key_test() &&
                   substituted_ciphertext_test() && credential_binding_test() &&
-                  tampered_final_test() && retransmission_test() && classical_identity_test() &&
-                  different_ca_test();
+                  tampered_final_test() && retransmission_test() && initiator_chooses_test() &&
+                  classical_request_test() && reply_algorithm_test() && reply_echo_test() &&
+                  final_mismatch_test() && classical_identity_test() && different_ca_test();
 
   free_identity(&mldsa);
   free_identity(&other_ca);

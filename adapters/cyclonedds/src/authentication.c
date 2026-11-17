@@ -257,8 +257,8 @@ static void local_identity_info_free(SecurityObject *obj) {
 }
 
 static LocalIdentityInfo *
-local_identity_info_new(DDS_Security_DomainId domainId, X509 *identityCert, X509 *identityCa,
-                        EVP_PKEY *privateKey, X509_CRL *crl,
+local_identity_info_new(DDS_Security_DomainId domainId, AuthenticationAlgoKind_t kagreeAlgoKind,
+                        X509 *identityCert, X509 *identityCa, EVP_PKEY *privateKey, X509_CRL *crl,
                         const DDS_Security_GUID_t *candidate_participant_guid,
                         const DDS_Security_GUID_t *adjusted_participant_guid) {
   DBG_TRACE("Entering local_identity_info_new\n");
@@ -294,8 +294,7 @@ local_identity_info_new(DDS_Security_DomainId domainId, X509 *identityCert, X509
   identity->dsignAlgoKind = get_authentication_algo_kind(identityCert);
   DBG_TRACE("Determined signature algorithm kind: %d\n", identity->dsignAlgoKind);
 
-  identity->kagreeAlgoKind =
-      get_default_kem_algorithm_kind(); /* Use compile-time selected algorithm */
+  identity->kagreeAlgoKind = kagreeAlgoKind;
   DBG_INFO("PQ_CRYPTO: Using %s for signatures, %s for key exchange\n",
            get_authentication_algo(identity->dsignAlgoKind),
            get_authentication_algo(identity->kagreeAlgoKind));
@@ -481,6 +480,28 @@ static void final_transcript(const HandshakeInfo *handshake, pqsec_transcript *t
                         &kem_public, &kem_ciphertext);
 }
 
+/* Accepts any 1.x minor version, as the built-in PKI-DH plugins do, and the
+ * given message suffix ("" for the identity token). */
+static bool pkidh_class_is(const char *class_id, const char *suffix) {
+  static const char prefix[] = "DDS:Auth:PKI-DH:1.";
+  const char *plus;
+  if (!class_id || strncmp(class_id, prefix, sizeof prefix - 1) != 0) {
+    return false;
+  }
+  plus = strchr(class_id, '+');
+  return plus ? strcmp(plus, suffix) == 0 : suffix[0] == '\0';
+}
+
+/* An echoed copy of a value is optional in PKI-DH. If present it must equal
+ * the local value, which is the one used. */
+static bool echo_matches(const DDS_Security_DataHolder *token, const char *name, const void *local,
+                         size_t size) {
+  const DDS_Security_BinaryProperty_t *echo =
+      DDS_Security_DataHolder_find_binary_property(token, name);
+  return !echo || echo->value._length == 0 ||
+         (echo->value._length == size && memcmp(echo->value._buffer, local, size) == 0);
+}
+
 static void free_binary_properties(DDS_Security_BinaryProperty_t *seq, uint32_t length) {
   assert(seq);
   for (uint32_t i = 0; i < length; i++) {
@@ -588,6 +609,7 @@ DDS_Security_ValidationResult_t validate_local_identity(
   X509 *identityCert, *identityCA;
   X509_CRL *crl = NULL;
   EVP_PKEY *privateKey;
+  AuthenticationAlgoKind_t kagreeAlgoKind;
   dds_time_t certExpiry = DDS_TIME_INVALID;
 
   /* PQ crypto specific variables */
@@ -732,6 +754,25 @@ DDS_Security_ValidationResult_t validate_local_identity(
   DBG_TRACE("Certificate expiry: %ld\n", certExpiry);
 
   DBG_TRACE("Obtaining adjusted participant GUID\n");
+  /* The key establishment algorithm used when this participant initiates
+   * (DDS Security 1.2, 10.3.1.4). AUTO, or no property, means the build's
+   * default. */
+  {
+    char *name = DDS_Security_Property_get_value(&participant_qos->property.value,
+                                                 PQSEC_PROP_KEY_ESTABLISHMENT);
+    kagreeAlgoKind = !name || strcmp(name, "AUTO") == 0 ? get_default_kem_algorithm_kind()
+                                                        : get_kagree_algo_from_string(name);
+    if (kagreeAlgoKind == AUTH_ALGO_KIND_UNKNOWN) {
+      DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE,
+                                 DDS_SECURITY_VALIDATION_FAILED,
+                                 "validate_local_identity: unsupported %s '%s'",
+                                 PQSEC_PROP_KEY_ESTABLISHMENT, name);
+      ddsrt_free(name);
+      goto err_adj_guid_failed;
+    }
+    ddsrt_free(name);
+  }
+
   if (get_adjusted_participant_guid(identityCert, candidate_participant_guid,
                                     adjusted_participant_guid, ex) != DDS_SECURITY_VALIDATION_OK) {
     DBG_ERR("Failed to get adjusted participant GUID\n");
@@ -748,8 +789,9 @@ DDS_Security_ValidationResult_t validate_local_identity(
   ddsrt_free(trusted_ca_dir);
 
   /* Create identity with traditional certificates only */
-  identity = local_identity_info_new(domain_id, identityCert, identityCA, privateKey, crl,
-                                     candidate_participant_guid, adjusted_participant_guid);
+  identity =
+      local_identity_info_new(domain_id, kagreeAlgoKind, identityCert, identityCA, privateKey, crl,
+                              candidate_participant_guid, adjusted_participant_guid);
 
   *local_identity_handle = IDENTITY_HANDLE(identity);
   DBG_TRACE("Assigned local_identity_handle = 0x%lx\n", (unsigned long)*local_identity_handle);
@@ -956,7 +998,7 @@ validate_remote_identity_token(const LocalIdentityInfo *localIdent,
     return DDS_SECURITY_VALIDATION_FAILED;
   }
 
-  if (strcmp(DDS_AUTHTOKEN_CLASS_ID, token->class_id) != 0) {
+  if (!pkidh_class_is(token->class_id, "")) {
     DBG_ERR("remote identity token: class_id='%s' not supported\n", token->class_id);
     DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE,
                                DDS_SECURITY_VALIDATION_FAILED,
@@ -986,7 +1028,7 @@ validate_auth_request_token(const DDS_Security_IdentityToken *token,
     return DDS_SECURITY_VALIDATION_FAILED;
   }
 
-  if (strcmp(token->class_id, DDS_AUTHTOKEN_AUTHREQ_CLASS_ID) != 0) {
+  if (!pkidh_class_is(token->class_id, "+AuthReq")) {
     DBG_ERR("AuthRequestMessageToken invalid: class_id '%s' is invalid\n", token->class_id);
     DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE,
                                DDS_SECURITY_VALIDATION_FAILED,
@@ -1406,12 +1448,12 @@ begin_handshake_request(dds_security_authentication *instance,
     }
   }
 
-  /* Set the KEM public key in KEM_PUBLIC property for PQ */
+  /* dh1 carries the KEM encapsulation key */
   assert(dhPubKeyData);
-  assert(dhPubKeyDataSize > 0); // PQ public keys are typically larger
-  DDS_Security_BinaryProperty_set_by_value(&tokens[tokidx++], DDS_AUTHTOKEN_PROP_KEM_PUBLIC,
-                                           dhPubKeyData, dhPubKeyDataSize);
-  DBG_TRACE("Set KEM_PUBLIC property with %u bytes of data\n", dhPubKeyDataSize);
+  assert(dhPubKeyDataSize > 0);
+  DDS_Security_BinaryProperty_set_by_value(&tokens[tokidx++], DDS_AUTHTOKEN_PROP_DH1, dhPubKeyData,
+                                           dhPubKeyDataSize);
+  DBG_TRACE("Set dh1 property with %u bytes of data\n", dhPubKeyDataSize);
 
   /* Set the challenge in challenge1 property */
   DDS_Security_BinaryProperty_set_by_value(&tokens[tokidx++], DDS_AUTHTOKEN_PROP_CHALLENGE1,
@@ -1668,7 +1710,7 @@ validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
   const DDS_Security_BinaryProperty_t *signature = NULL;
   const DDS_Security_BinaryProperty_t *kem_ciphertext = NULL;
 
-  const char *token_class_id = NULL;
+  const char *token_class_suffix = NULL;
   DBG_INFO("validate_handshake_token_impl() called\n");
 
   assert(relation);
@@ -1676,15 +1718,15 @@ validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
   /* Validate token type */
   switch (token_type) {
   case HS_TOKEN_REQ:
-    token_class_id = DDS_AUTHTOKEN_REQ_CLASS_ID;
+    token_class_suffix = "+Req";
     DBG_TRACE("Token type: REQUEST\n");
     break;
   case HS_TOKEN_REPLY:
-    token_class_id = DDS_AUTHTOKEN_REPLY_CLASS_ID;
+    token_class_suffix = "+Reply";
     DBG_TRACE("Token type: REPLY\n");
     break;
   case HS_TOKEN_FINAL:
-    token_class_id = DDS_AUTHTOKEN_FINAL_CLASS_ID;
+    token_class_suffix = "+Final";
     DBG_TRACE("Token type: FINAL\n");
     break;
   default:
@@ -1693,12 +1735,12 @@ validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
   }
 
   /* Validate class ID */
-  if (!token->class_id || strcmp(token_class_id, token->class_id) != 0) {
-    DBG_ERR("Incorrect class_id: '%s' (expected '%s')\n",
-            token->class_id ? token->class_id : "NULL", token_class_id);
+  if (!pkidh_class_is(token->class_id, token_class_suffix)) {
+    DBG_ERR("Incorrect class_id: '%s' (expected DDS:Auth:PKI-DH:1.x%s)\n",
+            token->class_id ? token->class_id : "NULL", token_class_suffix);
     return set_exception(
         ex, "process_handshake: HandshakeMessageToken incorrect class_id: %s (expected %s)",
-        token->class_id ? token->class_id : "NULL", token_class_id);
+        token->class_id ? token->class_id : "NULL", token_class_suffix);
   }
   DBG_TRACE("Token class_id '%s' validated\n", token->class_id);
 
@@ -1791,11 +1833,13 @@ validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
     }
     DBG_TRACE("Determined kagreeAlgoKind = %d\n", kagreeAlgoKind);
 
-    if (kagreeAlgoKind != relation->localIdentity->kagreeAlgoKind) {
-      DBG_ERR("C_KAGREE_ALGO does not match the locally configured KEM\n");
+    /* The initiator chooses the key establishment algorithm (10.3.1.4); the
+     * Reply must name the one this participant requested. */
+    if (token_type == HS_TOKEN_REPLY && kagreeAlgoKind != relation->localIdentity->kagreeAlgoKind) {
+      DBG_ERR("C_KAGREE_ALGO does not match the requested KEM\n");
       return set_exception(ex,
                            "process_handshake: HandshakeMessageToken property %s does not "
-                           "match the locally configured KEM",
+                           "match the requested KEM",
                            DDS_AUTHTOKEN_PROP_C_KAGREE_ALGO);
     }
 
@@ -1811,12 +1855,12 @@ validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
 
   /* Process key exchange material for REQUEST tokens */
   if (token_type == HS_TOKEN_REQ) {
-    /* PQ: Extract and validate KEM public key */
-    if ((dh1 = find_required_nonempty_binprop(token, DDS_AUTHTOKEN_PROP_KEM_PUBLIC, ex)) == NULL) {
-      DBG_ERR("Missing KEM_PUBLIC property\n");
+    /* dh1 is the initiator's KEM encapsulation key */
+    if ((dh1 = find_required_nonempty_binprop(token, DDS_AUTHTOKEN_PROP_DH1, ex)) == NULL) {
+      DBG_ERR("Missing dh1 property\n");
       return DDS_SECURITY_VALIDATION_FAILED;
     }
-    DBG_TRACE("Received KEM_PUBLIC property (length=%" PRIu32 ")\n", dh1->value._length);
+    DBG_TRACE("Received dh1 property (length=%" PRIu32 ")\n", dh1->value._length);
 
     /* Dynamic KEM public key validation */
     if (validate_kem_public_key_in_token(dh1, kagreeAlgoKind, ex) != DDS_SECURITY_VALIDATION_OK) {
@@ -1844,15 +1888,13 @@ validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
     }
     DBG_TRACE("Found CHALLENGE2 property (exact size)\n");
 
-    /* PQ: Extract KEM ciphertext and signatures */
-    DBG_TRACE("Extracting KEM_CIPHERTEXT and KEM_SIGNATURE\n");
-    if ((kem_ciphertext = find_required_nonempty_binprop(token, DDS_AUTHTOKEN_PROP_KEM_CIPHERTEXT,
-                                                         ex)) == NULL) {
-      DBG_ERR("Missing KEM_CIPHERTEXT property\n");
+    /* dh2 is the replier's KEM ciphertext */
+    if ((kem_ciphertext = find_required_nonempty_binprop(token, DDS_AUTHTOKEN_PROP_DH2, ex)) ==
+        NULL) {
+      DBG_ERR("Missing dh2 property\n");
       return DDS_SECURITY_VALIDATION_FAILED;
     }
-    DBG_TRACE("Found KEM_CIPHERTEXT property (length=%" PRIu32 ")\n",
-              kem_ciphertext->value._length);
+    DBG_TRACE("Found dh2 property (length=%" PRIu32 ")\n", kem_ciphertext->value._length);
 
     if (validate_kem_ciphertext_in_token(kem_ciphertext, kagreeAlgoKind, ex) !=
         DDS_SECURITY_VALIDATION_OK) {
@@ -1923,6 +1965,11 @@ validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
       DBG_TRACE("Optional HASH_C2 validated\n");
     }
 
+    if (!echo_matches(token, DDS_AUTHTOKEN_PROP_DH1, handshake->kem_pk, handshake->kem_pk_len)) {
+      DBG_ERR("Echoed dh1 differs from the local one\n");
+      return set_exception(ex, "process_handshake: HandshakeMessageToken property dh1 invalid");
+    }
+
     if (relation->lchallenge == NULL) {
       DBG_ERR("Missing future_challenge for this token\n");
       return set_exception(ex, "process_handshake: No future challenge exists for this token");
@@ -1986,28 +2033,45 @@ validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
   return DDS_SECURITY_VALIDATION_OK;
 }
 
-/* The Final carries only a signature over the transcript the replier already holds. */
+/* The Final carries challenge1, challenge2 and a signature over the transcript the
+ * replier already holds. Echoes, if present, must equal the local values. */
 static DDS_Security_ValidationResult_t
 validate_final_token(const DDS_Security_HandshakeMessageToken *token,
                      const HandshakeInfo *handshake, DDS_Security_SecurityException *ex) {
   const IdentityRelation *relation = handshake->relation;
-  const DDS_Security_BinaryProperty_t *signature;
+  const DDS_Security_BinaryProperty_t *signature, *challenge1, *challenge2;
   DDS_Security_ValidationResult_t result;
   pqsec_transcript transcript;
   EVP_PKEY *public_key;
 
-  if (!token->class_id || strcmp(token->class_id, DDS_AUTHTOKEN_FINAL_CLASS_ID) != 0) {
+  if (!pkidh_class_is(token->class_id, "+Final")) {
     return set_exception(
         ex, "process_handshake: HandshakeMessageToken incorrect class_id: %s (expected %s)",
         token->class_id ? token->class_id : "NULL", DDS_AUTHTOKEN_FINAL_CLASS_ID);
   }
-  if ((signature = find_required_nonempty_binprop(token, DDS_AUTHTOKEN_PROP_SIGNATURE, ex)) ==
-      NULL) {
+  if (!handshake->kem_ct || !relation->lchallenge || !relation->rchallenge) {
+    return set_exception(ex, "process_handshake: Final received before a valid Reply was sent");
+  }
+  if ((challenge1 = find_required_binprop_exactsize(token, DDS_AUTHTOKEN_PROP_CHALLENGE1,
+                                                    sizeof(AuthenticationChallenge), ex)) == NULL ||
+      (challenge2 = find_required_binprop_exactsize(token, DDS_AUTHTOKEN_PROP_CHALLENGE2,
+                                                    sizeof(AuthenticationChallenge), ex)) == NULL ||
+      (signature = find_required_nonempty_binprop(token, DDS_AUTHTOKEN_PROP_SIGNATURE, ex)) ==
+          NULL) {
     return DDS_SECURITY_VALIDATION_FAILED;
   }
-  if (!handshake->kem_ct || !relation->lchallenge || !relation->rchallenge ||
-      !(public_key = X509_get_pubkey(relation->remoteIdentity->identityCert))) {
-    return set_exception(ex, "process_handshake: Final received before a valid Reply was sent");
+  if (memcmp(challenge1->value._buffer, relation->rchallenge->value,
+             sizeof(AuthenticationChallenge)) != 0 ||
+      memcmp(challenge2->value._buffer, relation->lchallenge->value,
+             sizeof(AuthenticationChallenge)) != 0 ||
+      !echo_matches(token, DDS_AUTHTOKEN_PROP_HASH_C1, handshake->hash_c1, sizeof(HashValue_t)) ||
+      !echo_matches(token, DDS_AUTHTOKEN_PROP_HASH_C2, handshake->hash_c2, sizeof(HashValue_t)) ||
+      !echo_matches(token, DDS_AUTHTOKEN_PROP_DH1, handshake->kem_pk, handshake->kem_pk_len) ||
+      !echo_matches(token, DDS_AUTHTOKEN_PROP_DH2, handshake->kem_ct, handshake->kem_ct_len)) {
+    return set_exception(ex, "process_handshake: Final does not match this handshake");
+  }
+  if (!(public_key = X509_get_pubkey(relation->remoteIdentity->identityCert))) {
+    return set_exception(ex, "X509_get_pubkey failed");
   }
 
   final_transcript(handshake, &transcript);
@@ -2160,8 +2224,8 @@ begin_handshake_reply(dds_security_authentication *instance,
   }
   DBG_TRACE("Certificate contents retrieved (size=%u bytes)\n", certDataSize);
 
-  binary_property_kem_public = DDS_Security_DataHolder_find_binary_property(
-      handshake_message_in, DDS_AUTHTOKEN_PROP_KEM_PUBLIC);
+  binary_property_kem_public =
+      DDS_Security_DataHolder_find_binary_property(handshake_message_in, DDS_AUTHTOKEN_PROP_DH1);
   assert(binary_property_kem_public); /* checked by validate_handshake_token() */
 
   /* The same credentials, challenge and public key as the pending attempt mean a
@@ -2232,9 +2296,9 @@ begin_handshake_reply(dds_security_authentication *instance,
   pqsec_credential_hash(handshake->hash_c2, credentials);
   DBG_TRACE("Calculated HASH_C2\n");
 
-  DDS_Security_BinaryProperty_set_by_value(&tokens[tokidx++], DDS_AUTHTOKEN_PROP_KEM_CIPHERTEXT,
+  DDS_Security_BinaryProperty_set_by_value(&tokens[tokidx++], DDS_AUTHTOKEN_PROP_DH2,
                                            handshake->kem_ct, handshake->kem_ct_len);
-  DBG_CRYPTO("Set KEM_CIPHERTEXT property (length=%zu bytes)\n", handshake->kem_ct_len);
+  DBG_CRYPTO("Set dh2 property (length=%zu bytes)\n", handshake->kem_ct_len);
 
   assert(relation->rchallenge);
   DDS_Security_BinaryProperty_t *challenge1 = &tokens[tokidx++];
@@ -2343,30 +2407,16 @@ static bool generate_shared_secret(HandshakeInfo *handshake, unsigned char **sha
   }
   DBG_CRYPTO("Found KEM shared secret (len=%zu)\n", handshake->kem_ss_len);
 
-  /* HKDF over the KEM secret, bound to the hash of the final transcript */
-  pqsec_transcript transcript;
-  HashValue_t transcript_hash;
-  final_transcript(handshake, &transcript);
-  pqsec_transcript_hash(&transcript, transcript_hash);
-
+  /* SharedSecret is SHA-256 of the KEM secret (10.3.2.5.2) */
   *shared_secret = ddsrt_malloc(PQSEC_SHARED_SECRET_SIZE);
-  if (!pqsec_derive_shared_secret(handshake->kem_ss, handshake->kem_ss_len, transcript_hash,
-                                  *shared_secret)) {
-    DBG_ERR("Shared secret derivation failed\n");
-    DDS_Security_Exception_set_with_openssl_error(
-        ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE,
-        DDS_SECURITY_VALIDATION_FAILED, "process_handshake: shared secret derivation failed: ");
-    ddsrt_free(*shared_secret);
-    *shared_secret = NULL;
-    return false;
-  }
+  pqsec_shared_secret(handshake->kem_ss, handshake->kem_ss_len, *shared_secret);
   *length = PQSEC_SHARED_SECRET_SIZE;
 
   /* The raw KEM secret is not needed any more. */
   pqsec_kem_secret_free(handshake->kem_ss, handshake->kem_ss_len);
   handshake->kem_ss = NULL;
   handshake->kem_ss_len = 0;
-  DBG_CRYPTO("Derived shared secret from the KEM secret and the final transcript\n");
+  DBG_CRYPTO("Derived shared secret from the KEM secret\n");
   return true;
 }
 
@@ -2394,7 +2444,7 @@ process_handshake(dds_security_authentication *instance,
 
   /* PQ variables */
   const DDS_Security_BinaryProperty_t *kem_ciphertext;
-  const uint32_t tsz = 1;
+  const uint32_t tsz = 3;
   DBG_CRYPTO("Using post-quantum crypto mode\n");
 
   DDS_Security_octet *challenge1_ref_for_shared_secret, *challenge2_ref_for_shared_secret;
@@ -2427,8 +2477,8 @@ process_handshake(dds_security_authentication *instance,
                                    &(impl->trustedCAList), ex) != DDS_SECURITY_VALIDATION_OK)
         goto err_inv_token;
 
-      kem_ciphertext = DDS_Security_DataHolder_find_binary_property(
-          handshake_message_in, DDS_AUTHTOKEN_PROP_KEM_CIPHERTEXT);
+      kem_ciphertext = DDS_Security_DataHolder_find_binary_property(handshake_message_in,
+                                                                    DDS_AUTHTOKEN_PROP_DH2);
       assert(kem_ciphertext); /* checked by validate_handshake_token() */
 
       // Perform KEM decapsulation using our KEM keypair
@@ -2462,7 +2512,13 @@ process_handshake(dds_security_authentication *instance,
       DDS_Security_BinaryProperty_t *tokens = DDS_Security_BinaryPropertySeq_allocbuf(tsz);
       uint32_t idx = 0;
 
-      /* The Final carries only the signature over our own view of the handshake. */
+      /* challenge1, challenge2, and the signature over our own view of the handshake. */
+      DDS_Security_BinaryProperty_set_by_value(&tokens[idx++], DDS_AUTHTOKEN_PROP_CHALLENGE1,
+                                               relation->lchallenge->value,
+                                               sizeof(AuthenticationChallenge));
+      DDS_Security_BinaryProperty_set_by_value(&tokens[idx++], DDS_AUTHTOKEN_PROP_CHALLENGE2,
+                                               relation->rchallenge->value,
+                                               sizeof(AuthenticationChallenge));
       {
         unsigned char *kem_signature = NULL;
         size_t kem_signature_len = 0;
@@ -2473,7 +2529,7 @@ process_handshake(dds_security_authentication *instance,
                                 PQSEC_TRANSCRIPT_SIZE, &kem_signature, &kem_signature_len,
                                 ex) != DDS_SECURITY_VALIDATION_OK) {
           DBG_ERR("ML-DSA signature creation failed\n");
-          ddsrt_free(tokens);
+          free_binary_properties(tokens, idx);
           goto err_signature;
         }
         DBG_SIG("ML-DSA signature created (%zu bytes)\n", kem_signature_len);

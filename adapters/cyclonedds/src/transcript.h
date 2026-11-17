@@ -1,7 +1,8 @@
 /*
  * Copyright (C) 2023-2026 Javier Blanco-Romero @fj-blanco (UC3M)
  *
- * Credential hashes and signed transcripts of protocol pqsec-dds.auth:1.1.
+ * Credential hashes and signed transcripts of DDS:Auth:PKI-DH (DDS Security 1.2,
+ * 10.3.2.5).
  * Everything here works on the caller's data; nothing is copied.
  */
 
@@ -13,7 +14,7 @@
 
 #include <stdbool.h>
 
-#define PQSEC_TRANSCRIPT_SIZE 8
+#define PQSEC_TRANSCRIPT_SIZE 6
 
 typedef unsigned char HashValue_t[SHA256_DIGEST_LENGTH];
 
@@ -22,17 +23,15 @@ typedef struct pqsec_transcript {
   const DDS_Security_BinaryProperty_t *items[PQSEC_TRANSCRIPT_SIZE];
 } pqsec_transcript;
 
-/* SHA-256 of the protocol and role separators followed by c.id, c.perm,
- * c.pdata, c.dsign_algo and c.kagree_algo, in that order. */
+/* SHA-256 of c.id, c.perm, c.pdata, c.dsign_algo and c.kagree_algo, in that
+ * order. */
 void pqsec_credential_hash(HashValue_t hash,
                            const DDS_Security_BinaryProperty_t *const credentials[5]);
 
 /* The Reply transcript, or the Final transcript when final is true. */
 void pqsec_transcript_init(pqsec_transcript *transcript, bool final, const HashValue_t hash_c1,
                            const HashValue_t hash_c2, const unsigned char *challenge1,
-                           const unsigned char *challenge2, const DDS_Security_OctetSeq *kem_public,
-                           const DDS_Security_OctetSeq *kem_ciphertext);
-
-void pqsec_transcript_hash(const pqsec_transcript *transcript, HashValue_t hash);
+                           const unsigned char *challenge2, const DDS_Security_OctetSeq *dh1,
+                           const DDS_Security_OctetSeq *dh2);
 
 #endif /* PQSEC_DDS_TRANSCRIPT_H */

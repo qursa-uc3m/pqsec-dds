@@ -5,11 +5,8 @@
 
 #include "pq_kem.h"
 
-#include <openssl/core_names.h>
 #include <openssl/crypto.h>
-#include <openssl/err.h>
-#include <openssl/kdf.h>
-#include <openssl/params.h>
+#include <openssl/sha.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -158,31 +155,7 @@ error:
   return false;
 }
 
-bool pqsec_derive_shared_secret(const uint8_t *kem_secret, size_t kem_secret_size,
-                                const uint8_t transcript_hash[32],
-                                uint8_t shared_secret[PQSEC_SHARED_SECRET_SIZE]) {
-  static const char label[] = "pqsec-dds.auth:1.1 shared-secret";
-  uint8_t info[sizeof label - 1 + 32];
-  char digest[] = "SHA256";
-  EVP_KDF *kdf;
-  EVP_KDF_CTX *context;
-  bool ok;
-
-  if (!kem_secret || kem_secret_size == 0) {
-    return false;
-  }
-  memcpy(info, label, sizeof label - 1);
-  memcpy(info + sizeof label - 1, transcript_hash, 32);
-  OSSL_PARAM params[] = {
-      OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST, digest, 0),
-      OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_KEY, (void *)kem_secret, kem_secret_size),
-      OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_INFO, info, sizeof info),
-      OSSL_PARAM_construct_end()};
-
-  kdf = EVP_KDF_fetch(NULL, "HKDF", NULL);
-  context = kdf ? EVP_KDF_CTX_new(kdf) : NULL;
-  EVP_KDF_free(kdf);
-  ok = context && EVP_KDF_derive(context, shared_secret, PQSEC_SHARED_SECRET_SIZE, params) == 1;
-  EVP_KDF_CTX_free(context);
-  return ok;
+void pqsec_shared_secret(const uint8_t *kem_secret, size_t kem_secret_size,
+                         uint8_t shared_secret[PQSEC_SHARED_SECRET_SIZE]) {
+  SHA256(kem_secret, kem_secret_size, shared_secret);
 }
