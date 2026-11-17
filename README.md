@@ -54,8 +54,9 @@ ctest --test-dir adapters/opendds/build --output-on-failure
 
 ## Shared work
 
-Both adapters implement [protocol 1.1](protocol/pqsec-auth-v1.md) and test
-against the same byte-for-byte [vectors](tests/vectors).  Each still has its
+Both adapters implement [DDS:Auth:PKI-DH with ML-KEM and
+ML-DSA](protocol/pkidh-mlkem.md) and test against the same byte-for-byte
+[vectors](tests/vectors).  Each still has its
 own crypto wrapper and transcript code; moving those into `core/` is future
 work, as is running the two adapters against each other.
 

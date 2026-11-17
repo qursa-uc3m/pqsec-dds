@@ -19,6 +19,3 @@ The hashes and transcripts were also checked against the serializer of
 OpenDDS's built-in PKI-DH plugin (`SSL::hash_serialized`).
 
 Signatures and KEM operations are randomized and are not part of the vectors.
-
-`pqsec-auth-1.1.txt` belongs to the old protocol. It is no longer generated
-and is removed once neither adapter reads it.
