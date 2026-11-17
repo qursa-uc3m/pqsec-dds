@@ -8,7 +8,7 @@ openssl=${OPENSSL:-openssl}
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cd "$script_dir"
 
-if ! "$openssl" list -signature-algorithms | grep -q 'ML-DSA-44'; then
+if ! "$openssl" list -signature-algorithms | grep -q 'ML-DSA-65'; then
   echo "OpenSSL does not expose native ML-DSA (OpenSSL 3.5+ required)" >&2
   exit 1
 fi
@@ -56,7 +56,6 @@ generate_identity() {
   "$openssl" verify -no-CApath -check_ss_sig -CAfile "$root_cert" "$entity_cert"
 }
 
-generate_identity ML-DSA-44 mldsa mldsa44 512
 generate_identity ML-DSA-65 mldsa mldsa65 514
 generate_identity ML-DSA-87 mldsa mldsa87 516
 generate_identity EC traditional ecdsa_p256 600

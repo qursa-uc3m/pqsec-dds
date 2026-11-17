@@ -14,7 +14,6 @@ build_dir="$adapter_dir/build"
 build_type=Debug
 jobs=$(nproc)
 kem=mlkem768
-provider=oqsprovider
 debug_level=INFO
 clean=0
 
@@ -28,20 +27,14 @@ Usage: $0 [options]
   -t Debug|Release       Build type (default: Debug)
   -j N                   Parallel build jobs
   --kem NAME             KEM selection (default: mlkem768)
-  --provider NAME        Fallback OpenSSL provider (default: oqsprovider)
   --debug-level LEVEL    NONE|ERROR|WARN|INFO|TRACE|DATA
   --clean                Remove the build directory before configuring
   -h, --help             Show this help
 
-Native OpenSSL KEMs:
-  mlkem512 mlkem768 mlkem1024 x25519_mlkem768 p256_mlkem768
+KEMs:
+  mlkem768 mlkem1024 x25519_mlkem768
 
-Experimental oqs-provider KEMs:
-  frodo640shake bikel1 hqc128
-
-The plugin uses OpenSSL EVP exclusively.  It never links to liboqs.  For an
-experimental KEM, build oqs-provider against the same OpenSSL installation and
-set OPENSSL_MODULES to the directory containing oqsprovider.so at run time.
+All of them are native in OpenSSL 3.5 and newer.
 EOF
 }
 
@@ -53,7 +46,6 @@ while (($#)); do
     -t) build_type=$2; shift 2 ;;
     -j) jobs=$2; shift 2 ;;
     --kem) kem=$2; shift 2 ;;
-    --provider) provider=$2; shift 2 ;;
     --debug-level) debug_level=$2; shift 2 ;;
     --clean) clean=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -74,7 +66,6 @@ cmake -S "$adapter_dir/src" -B "$build_dir" \
   -DCYCLONEDDS_PATH="$cyclonedds_path" \
   -DOPENSSL_ROOT_DIR="$openssl_root" \
   -DSELECTED_KEM_ALGORITHM="$kem" \
-  -DPQSEC_FALLBACK_PROVIDER="$provider" \
   -DPQ_DEBUG_LEVEL="$debug_level" \
   -DCMAKE_BUILD_TYPE="$build_type" \
   -DBUILD_TESTING=ON

@@ -15,18 +15,12 @@ typedef struct {
 } AlgorithmInfo;
 
 static const AlgorithmInfo kem_algorithms[] = {
-    {"mlkem512", AUTH_ALGO_KIND_ML_KEM_512, "ML-KEM-512", "ML-KEM-512"},
     {"mlkem768", AUTH_ALGO_KIND_ML_KEM_768, "ML-KEM-768", "ML-KEM-768"},
     {"mlkem1024", AUTH_ALGO_KIND_ML_KEM_1024, "ML-KEM-1024", "ML-KEM-1024"},
     {"x25519_mlkem768", AUTH_ALGO_KIND_X25519_ML_KEM_768, "X25519MLKEM768", "X25519MLKEM768"},
-    {"p256_mlkem768", AUTH_ALGO_KIND_P256_ML_KEM_768, "SecP256r1MLKEM768", "SecP256r1MLKEM768"},
-    {"frodo640shake", AUTH_ALGO_KIND_FRODO_640_SHAKE, "frodo640shake", "frodo640shake"},
-    {"bikel1", AUTH_ALGO_KIND_BIKE_L1, "bikel1", "bikel1"},
-    {"hqc128", AUTH_ALGO_KIND_HQC_128, "hqc128", "hqc128"},
     {NULL, AUTH_ALGO_KIND_UNKNOWN, NULL, NULL}};
 
 static const AlgorithmInfo signature_algorithms[] = {
-    {"mldsa44", AUTH_ALGO_KIND_ML_DSA_44, "ML-DSA-44", "ML-DSA-44"},
     {"mldsa65", AUTH_ALGO_KIND_ML_DSA_65, "ML-DSA-65", "ML-DSA-65"},
     {"mldsa87", AUTH_ALGO_KIND_ML_DSA_87, "ML-DSA-87", "ML-DSA-87"},
     {NULL, AUTH_ALGO_KIND_UNKNOWN, NULL, NULL}};
@@ -83,9 +77,7 @@ AuthenticationAlgoKind_t get_authentication_algo_kind(X509 *certificate) {
     return result;
   }
 
-  if (EVP_PKEY_is_a(key, "ML-DSA-44") || EVP_PKEY_is_a(key, "MLDSA44")) {
-    result = AUTH_ALGO_KIND_ML_DSA_44;
-  } else if (EVP_PKEY_is_a(key, "ML-DSA-65") || EVP_PKEY_is_a(key, "MLDSA65")) {
+  if (EVP_PKEY_is_a(key, "ML-DSA-65") || EVP_PKEY_is_a(key, "MLDSA65")) {
     result = AUTH_ALGO_KIND_ML_DSA_65;
   } else if (EVP_PKEY_is_a(key, "ML-DSA-87") || EVP_PKEY_is_a(key, "MLDSA87")) {
     result = AUTH_ALGO_KIND_ML_DSA_87;
@@ -143,14 +135,9 @@ bool is_supported_kem_algorithm(const char *name) {
   return find_by_configuration_name(kem_algorithms, name) != NULL;
 }
 
-static const KemKeySizes kem_key_sizes[] = {{AUTH_ALGO_KIND_ML_KEM_512, 800, 1632, 768},
-                                            {AUTH_ALGO_KIND_ML_KEM_768, 1184, 2400, 1088},
+static const KemKeySizes kem_key_sizes[] = {{AUTH_ALGO_KIND_ML_KEM_768, 1184, 2400, 1088},
                                             {AUTH_ALGO_KIND_ML_KEM_1024, 1568, 3168, 1568},
                                             {AUTH_ALGO_KIND_X25519_ML_KEM_768, 1216, 0, 1120},
-                                            {AUTH_ALGO_KIND_P256_ML_KEM_768, 1249, 0, 1153},
-                                            {AUTH_ALGO_KIND_FRODO_640_SHAKE, 9616, 19888, 9720},
-                                            {AUTH_ALGO_KIND_BIKE_L1, 1541, 5223, 1573},
-                                            {AUTH_ALGO_KIND_HQC_128, 2249, 2289, 4481},
                                             {AUTH_ALGO_KIND_UNKNOWN, 0, 0, 0}};
 
 static const KemKeySizes *find_sizes(AuthenticationAlgoKind_t kind) {

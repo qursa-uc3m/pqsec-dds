@@ -17,22 +17,13 @@ option(DEBUG "Enable legacy plugin diagnostics" OFF)
 
 set(PQ_DEBUG_LEVEL "INFO" CACHE STRING "NONE|ERROR|WARN|INFO|TRACE|DATA")
 set_property(CACHE PQ_DEBUG_LEVEL PROPERTY STRINGS NONE ERROR WARN INFO TRACE DATA)
-set(SELECTED_KEM_ALGORITHM "mlkem768" CACHE STRING
-    "OpenSSL KEM algorithm exposed by the default provider or oqs-provider")
-set_property(CACHE SELECTED_KEM_ALGORITHM PROPERTY STRINGS
-  mlkem512 mlkem768 mlkem1024 x25519_mlkem768 p256_mlkem768
-  frodo640shake bikel1 hqc128)
-set(PQSEC_FALLBACK_PROVIDER "oqsprovider" CACHE STRING
-    "OpenSSL provider loaded when the selected KEM is not initially available")
-
-set(_pq_kems
-  mlkem512 mlkem768 mlkem1024
-  x25519_mlkem768 p256_mlkem768
-  frodo640shake bikel1 hqc128)
+set(SELECTED_KEM_ALGORITHM "mlkem768" CACHE STRING "Key establishment algorithm")
+set(_pq_kems mlkem768 mlkem1024 x25519_mlkem768)
+set_property(CACHE SELECTED_KEM_ALGORITHM PROPERTY STRINGS ${_pq_kems})
 list(FIND _pq_kems "${SELECTED_KEM_ALGORITHM}" _kem_index)
 if(_kem_index EQUAL -1)
   message(FATAL_ERROR
-    "${SELECTED_KEM_ALGORITHM} is not a supported OpenSSL KEM name. "
+    "${SELECTED_KEM_ALGORITHM} is not a supported KEM. "
     "Choose one of: ${_pq_kems}")
 endif()
 
@@ -77,7 +68,6 @@ target_link_libraries(dds_pqsec PRIVATE
 target_compile_definitions(dds_pqsec PRIVATE
   _POSIX_C_SOURCE=200809L
   SELECTED_KEM_ALGORITHM="${SELECTED_KEM_ALGORITHM}"
-  PQSEC_FALLBACK_PROVIDER="${PQSEC_FALLBACK_PROVIDER}"
   PQ_LOGGING_ENABLED=$<BOOL:${ENABLE_PQ_LOGGING}>
   PQ_DEFAULT_LOG_LEVEL=${PQ_DEBUG_LEVEL_NUM}
 )

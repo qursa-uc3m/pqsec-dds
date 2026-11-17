@@ -23,24 +23,14 @@
 typedef enum {
   AUTH_ALGO_KIND_UNKNOWN = 0,
 
-  // ML-KEM algorithms
-  AUTH_ALGO_KIND_ML_KEM_512,
+  /* Key establishment */
   AUTH_ALGO_KIND_ML_KEM_768,
   AUTH_ALGO_KIND_ML_KEM_1024,
-
-  // ML-DSA algorithms
-  AUTH_ALGO_KIND_ML_DSA_44,
-  AUTH_ALGO_KIND_ML_DSA_65,
-  AUTH_ALGO_KIND_ML_DSA_87,
-
-  /* Native OpenSSL hybrid algorithms. */
   AUTH_ALGO_KIND_X25519_ML_KEM_768,
-  AUTH_ALGO_KIND_P256_ML_KEM_768,
 
-  /* Experimental algorithms exposed through oqs-provider. */
-  AUTH_ALGO_KIND_FRODO_640_SHAKE,
-  AUTH_ALGO_KIND_BIKE_L1,
-  AUTH_ALGO_KIND_HQC_128
+  /* Digital signature */
+  AUTH_ALGO_KIND_ML_DSA_65,
+  AUTH_ALGO_KIND_ML_DSA_87
 } AuthenticationAlgoKind_t;
 
 typedef struct {

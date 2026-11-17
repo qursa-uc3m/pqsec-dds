@@ -14,20 +14,10 @@ prepend_library_path "$adapter_dir/cyclonedds_install/lib"
 prepend_library_path "$adapter_dir/build"
 export LD_LIBRARY_PATH
 
-# Native ML-KEM/ML-DSA and hybrid KEMs need no external provider setup. For an
-# experimental oqs-provider KEM, point this at the directory containing the
-# provider module before sourcing this script.
-if [ -n "${PQSEC_OPENSSL_MODULES:-}" ]; then
-  export OPENSSL_MODULES="$PQSEC_OPENSSL_MODULES"
-fi
-
 if [ -z "${CYCLONEDDS_URI:-}" ] &&
-   [ -f "$adapter_dir/config/cyclonedds/custom_auth_plugin_mldsa44.xml" ]; then
-  export CYCLONEDDS_URI="$adapter_dir/config/cyclonedds/custom_auth_plugin_mldsa44.xml"
+   [ -f "$adapter_dir/config/cyclonedds/custom_auth_plugin.xml" ]; then
+  export CYCLONEDDS_URI="$adapter_dir/config/cyclonedds/custom_auth_plugin.xml"
 fi
 
 echo "CycloneDDS: $adapter_dir/cyclonedds_install/lib"
 echo "PQSec plugin: $adapter_dir/build/libdds_pqsec.so"
-if [ -n "${OPENSSL_MODULES:-}" ]; then
-  echo "OpenSSL modules: $OPENSSL_MODULES"
-fi

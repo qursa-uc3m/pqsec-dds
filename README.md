@@ -28,9 +28,8 @@ and test vectors, but they cannot share one plugin binary.
 
 The implementation has been cleaned up and retained at
 [adapters/cyclonedds](adapters/cyclonedds/README.md). Cryptographic operations
-use OpenSSL EVP: native OpenSSL providers for standardized algorithms and an
-optional oqs-provider fallback for experiments. Neither adapter calls liboqs
-directly.
+use OpenSSL EVP and its default provider only. Neither adapter uses liboqs or
+oqs-provider.
 
 ```sh
 cd adapters/cyclonedds

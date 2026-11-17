@@ -21,45 +21,14 @@ static EVP_PKEY_CTX *new_keygen_context(AuthenticationAlgoKind_t kind) {
 
 static bool export_public_key(EVP_PKEY *key, uint8_t **public_key, size_t *public_key_size) {
   *public_key_size = EVP_PKEY_get1_encoded_public_key(key, public_key);
-  if (*public_key_size != 0) {
-    return true;
-  }
-
-  if (EVP_PKEY_get_raw_public_key(key, NULL, public_key_size) != 1) {
-    return false;
-  }
-  *public_key = OPENSSL_malloc(*public_key_size);
-  return *public_key && EVP_PKEY_get_raw_public_key(key, *public_key, public_key_size) == 1;
+  return *public_key_size != 0;
 }
 
+/* OpenSSL runs the FIPS 203 encapsulation key check here. A hybrid key with a
+ * low-order X25519 share is refused when encapsulating to it. */
 static EVP_PKEY *import_public_key(const char *name, const uint8_t *public_key,
                                    size_t public_key_size) {
-  EVP_PKEY_CTX *context = EVP_PKEY_CTX_new_from_name(NULL, name, NULL);
-  EVP_PKEY *key = NULL;
-  OSSL_PARAM params[] = {OSSL_PARAM_construct_octet_string(OSSL_PKEY_PARAM_ENCODED_PUBLIC_KEY,
-                                                           (void *)public_key, public_key_size),
-                         OSSL_PARAM_construct_end()};
-
-  if (context && EVP_PKEY_fromdata_init(context) == 1 &&
-      EVP_PKEY_fromdata(context, &key, EVP_PKEY_PUBLIC_KEY, params) == 1) {
-    EVP_PKEY_CTX_free(context);
-    return key;
-  }
-
-  EVP_PKEY_free(key);
-  EVP_PKEY_CTX_free(context);
-  ERR_clear_error();
   return EVP_PKEY_new_raw_public_key_ex(NULL, name, NULL, public_key, public_key_size);
-}
-
-bool pqsec_kem_is_available(AuthenticationAlgoKind_t kind) {
-  EVP_PKEY_CTX *context = new_keygen_context(kind);
-  const bool available = context != NULL;
-  if (!available) {
-    ERR_clear_error();
-  }
-  EVP_PKEY_CTX_free(context);
-  return available;
 }
 
 void pqsec_kem_buffer_free(uint8_t *buffer) {

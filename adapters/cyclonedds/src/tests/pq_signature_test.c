@@ -11,8 +11,8 @@
 #include <stdio.h>
 #include <string.h>
 
-static EVP_PKEY *generate_mldsa44(void) {
-  EVP_PKEY_CTX *context = EVP_PKEY_CTX_new_from_name(NULL, "ML-DSA-44", NULL);
+static EVP_PKEY *generate_mldsa65(void) {
+  EVP_PKEY_CTX *context = EVP_PKEY_CTX_new_from_name(NULL, "ML-DSA-65", NULL);
   EVP_PKEY *key = NULL;
   if (!context || EVP_PKEY_keygen_init(context) != 1 || EVP_PKEY_generate(context, &key) != 1) {
     EVP_PKEY_free(key);
@@ -33,14 +33,14 @@ int main(void) {
       .value = {._length = sizeof(ciphertext), ._buffer = (unsigned char *)ciphertext}};
   const DDS_Security_BinaryProperty_t *transcript[] = {&challenge_property, &ciphertext_property};
   DDS_Security_SecurityException exception = {0};
-  EVP_PKEY *key = generate_mldsa44();
+  EVP_PKEY *key = generate_mldsa65();
   unsigned char *signature = NULL;
   size_t signature_size = 0;
   int result = 1;
 
   if (!key ||
       create_pq_signature(key, transcript, 2, &signature, &signature_size, &exception, NULL,
-                          AUTH_ALGO_KIND_ML_DSA_44, NULL) != DDS_SECURITY_VALIDATION_OK ||
+                          AUTH_ALGO_KIND_ML_DSA_65, NULL) != DDS_SECURITY_VALIDATION_OK ||
       validate_pq_signature(key, transcript, 2, signature, signature_size, &exception, NULL) !=
           DDS_SECURITY_VALIDATION_OK) {
     fprintf(stderr, "ML-DSA transcript round trip failed\n");

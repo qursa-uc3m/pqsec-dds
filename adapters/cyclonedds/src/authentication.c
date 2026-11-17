@@ -33,7 +33,6 @@
 #include "authentication.h"
 #include "transcript.h"
 #include "pq_kem.h"
-#include <openssl/provider.h>
 #include "dds/ddsi/ddsi_domaingv.h"
 #include "dds/ddsrt/atomics.h"
 #include "dds/ddsrt/heap.h"
@@ -162,7 +161,6 @@ typedef struct dds_security_authentication_impl {
   const dds_security_authentication_listener *listener;
   X509Seq trustedCAList;
   bool include_optional;
-  OSSL_PROVIDER *fallback_provider;
 } dds_security_authentication_impl;
 
 /* data type for timer dispatcher */
@@ -174,46 +172,6 @@ typedef struct {
 static OSSL_LIB_CTX *get_oqs_context(const dds_security_authentication_impl *auth) {
   DDSRT_UNUSED_ARG(auth);
   return NULL;
-}
-
-static bool ensure_selected_kem_available(dds_security_authentication_impl *auth) {
-  const AuthenticationAlgoKind_t kind = get_default_kem_algorithm_kind();
-  const char *provider_name = getenv("PQSEC_OPENSSL_PROVIDER");
-
-  if (kind == AUTH_ALGO_KIND_UNKNOWN) {
-    DBG_ERR("Unknown configured KEM algorithm: %s\n", get_default_kem_name());
-    return false;
-  }
-  if (pqsec_kem_is_available(kind)) {
-    return true;
-  }
-
-  if (!provider_name || provider_name[0] == '\0') {
-    provider_name = PQSEC_FALLBACK_PROVIDER;
-  }
-  if (!provider_name || provider_name[0] == '\0') {
-    DBG_ERR("OpenSSL does not expose KEM %s and no fallback provider is configured\n",
-            get_default_kem_openssl_name());
-    return false;
-  }
-
-  auth->fallback_provider = OSSL_PROVIDER_try_load(NULL, provider_name, 1);
-  if (!auth->fallback_provider) {
-    DBG_ERR("Failed to load OpenSSL provider '%s' for KEM %s\n", provider_name,
-            get_default_kem_openssl_name());
-    return false;
-  }
-  if (!pqsec_kem_is_available(kind)) {
-    DBG_ERR("OpenSSL provider '%s' does not expose KEM %s\n", provider_name,
-            get_default_kem_openssl_name());
-    OSSL_PROVIDER_unload(auth->fallback_provider);
-    auth->fallback_provider = NULL;
-    return false;
-  }
-
-  DBG_INFO("Loaded OpenSSL provider '%s' for KEM %s\n", provider_name,
-           get_default_kem_openssl_name());
-  return true;
 }
 
 static bool security_object_valid(SecurityObject *obj, SecurityObjectKind_t kind) {
@@ -1822,11 +1780,6 @@ validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
     }
     DBG_TRACE("Determined dsignAlgoKind = %d\n", dsignAlgoKind);
 
-    if (dsignAlgoKind != AUTH_ALGO_KIND_ML_DSA_44 && dsignAlgoKind != AUTH_ALGO_KIND_ML_DSA_65 &&
-        dsignAlgoKind != AUTH_ALGO_KIND_ML_DSA_87) {
-      return set_exception(ex, "process_handshake: remote identity certificate is not ML-DSA");
-    }
-
     if (dsignAlgoKind != get_authentication_algo_kind(identityCert)) {
       DBG_ERR("C_DSIGN_ALGO does not match the certificate public key\n");
       return set_exception(ex,
@@ -3096,15 +3049,6 @@ int32_t init_authentication(const char *argument, void **context, struct ddsi_do
   dds_openssl_init();
   DBG_TRACE("OpenSSL initialized\n");
 
-  if (!ensure_selected_kem_available(authentication)) {
-    dds_security_timed_dispatcher_free(authentication->dispatcher);
-    ddsrt_hh_free(authentication->remoteGuidHash);
-    ddsrt_hh_free(authentication->objectHash);
-    ddsrt_mutex_destroy(&authentication->lock);
-    ddsrt_free(authentication);
-    return -1;
-  }
-
   *context = authentication;
   DBG_INFO("init_authentication completed, returning success\n");
   return 0;
@@ -3138,11 +3082,6 @@ int32_t finalize_authentication(void *instance) {
 
     free_ca_list_contents(&(authentication->trustedCAList));
     DBG_TRACE("Freed trusted CA list contents\n");
-
-    if (authentication->fallback_provider) {
-      OSSL_PROVIDER_unload(authentication->fallback_provider);
-      authentication->fallback_provider = NULL;
-    }
 
     ddsrt_mutex_unlock(&authentication->lock);
     DBG_TRACE("Unlocked lock for finalize_authentication\n");

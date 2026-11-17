@@ -139,8 +139,7 @@ static DDS_Security_ValidationResult_t check_key_type_and_size(EVP_PKEY *key, in
                                                                DDS_Security_SecurityException *ex) {
   const char *sub = isPrivate ? "private key" : "certificate";
   assert(key);
-  if (EVP_PKEY_is_a(key, "ML-DSA-44") || EVP_PKEY_is_a(key, "MLDSA44") ||
-      EVP_PKEY_is_a(key, "ML-DSA-65") || EVP_PKEY_is_a(key, "MLDSA65") ||
+  if (EVP_PKEY_is_a(key, "ML-DSA-65") || EVP_PKEY_is_a(key, "MLDSA65") ||
       EVP_PKEY_is_a(key, "ML-DSA-87") || EVP_PKEY_is_a(key, "MLDSA87")) {
     EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_from_pkey(NULL, key, NULL);
     int valid = 0;

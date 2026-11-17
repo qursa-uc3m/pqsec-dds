@@ -2,9 +2,8 @@
  * Copyright (C) 2023-2026 Javier Blanco-Romero @fj-blanco (UC3M)
  *
  *
- * Provider-neutral OpenSSL EVP KEM abstraction.  Standard algorithms are
- * supplied by OpenSSL's default provider; experimental algorithms can be
- * supplied by oqs-provider without exposing liboqs to the plugin.
+ * OpenSSL EVP KEM operations for the algorithms of the profile, all supplied by
+ * OpenSSL's default provider.
  */
 
 #ifndef PQSEC_DDS_PQ_KEM_H
@@ -24,8 +23,6 @@ typedef struct pqsec_kem_keypair {
   uint8_t *public_key;
   size_t public_key_size;
 } pqsec_kem_keypair;
-
-bool pqsec_kem_is_available(AuthenticationAlgoKind_t kind);
 
 bool pqsec_kem_keypair_generate(AuthenticationAlgoKind_t kind, pqsec_kem_keypair **keypair);
 
