@@ -8,6 +8,7 @@ hybrid authentication through the DDS Security Authentication SPI.
 ```text
 pqsec-dds/
   protocol/                 Shared experimental wire-protocol documents
+  formal/                   Tamarin model of the PKI-DH handshake
   core/                     Future DDS-neutral OpenSSL core
   adapters/
     cyclonedds/             External CycloneDDS authentication plugin

@@ -1,0 +1,246 @@
+theory PKIDH
+begin
+
+/*
+ * DDS:Auth:PKI-DH of DDS Security 1.2 with a Diffie-Hellman, KEM or hybrid
+ * key establishment. See README.md for the flags and the results.
+ *
+ *   (default)  dh1 = g^x, dh2 = g^y
+ *   KEM        dh1 = encapsulation key, dh2 = ciphertext
+ *   HYBRID     dh1 = <encapsulation key, g^x>, dh2 = <ciphertext, g^y>
+ *   BREAKKEM   the KEM is broken: honest decapsulation keys leak
+ *   BREAKDH    Diffie-Hellman is broken: honest exponents leak
+ *   TRANSCRIPT SharedSecret also hashes the signed values
+ *   ECHO       each side verifies the peer's signature over the dh1 echoed
+ *              in the message instead of its own copy
+ *   NEGOTIATE  two KEMs, 'strong' and 'weak', chosen by the initiator from
+ *              unauthenticated discovery data
+ *   CHECK      with NEGOTIATE: the initiator compares the authenticated
+ *              algorithm info in c.pdata with what discovery said
+ */
+
+builtins: diffie-hellman, hashing, signing
+
+/* The KEM has no binding properties: mal() turns a ciphertext into a
+   different one that decapsulates to the same key. Decapsulating anything
+   else gives a term only the key holder can compute, as with ML-KEM's
+   implicit rejection. */
+functions: kpk/1, kenc/2, kdec/2, mal/1
+equations:
+  kdec(kenc(k, kpk(dk)), dk) = k,
+  kdec(mal(kenc(k, kpk(dk))), dk) = k
+
+/* What each side sends and computes, per key establishment. */
+#ifdef HYBRID
+macros:
+  share1(x, dk) = <kpk(dk), 'g' ^ x>,
+  share2(dh1, y, k) = <kenc(k, fst(dh1)), 'g' ^ y>,
+  secret_r(dh1, y, k) = <k, snd(dh1) ^ y>,
+  secret_i(dh2, x, dk) = <kdec(fst(dh2), dk), snd(dh2) ^ x>
+#endif
+#ifdef KEM
+macros:
+  share1(x, dk) = kpk(dk),
+  share2(dh1, y, k) = kenc(k, dh1),
+  secret_r(dh1, y, k) = k,
+  secret_i(dh2, x, dk) = kdec(dh2, dk)
+#endif
+#ifdef HYBRID
+#define WITH_KEM
+#endif
+#ifdef KEM
+#define WITH_KEM
+#endif
+#ifdef WITH_KEM
+#else
+macros:
+  share1(x, dk) = 'g' ^ x,
+  share2(dh1, y, k) = 'g' ^ y,
+  secret_r(dh1, y, k) = dh1 ^ y,
+  secret_i(dh2, x, dk) = dh2 ^ x
+#endif
+
+#ifdef TRANSCRIPT
+macros:
+  shared(s, hc1, hc2, ch1, ch2, dh1, dh2) = h(<'ss', s, hc1, hc2, ch1, ch2, dh1, dh2>)
+#else
+macros:
+  shared(s, hc1, hc2, ch1, ch2, dh1, dh2) = h(<'ss', s>)
+#endif
+
+/* ECHO: the Reply and the Final repeat dh1, and the receiver verifies the
+   signature over that copy. */
+#ifdef ECHO
+macros:
+  reply(c2, dh2, ch1, ch2, sig, dh1) = <'rep', c2, dh2, ch1, ch2, sig, dh1>,
+  final(ch1, ch2, sig, dh1) = <'fin', ch1, ch2, sig, dh1>,
+  signed_dh1(own, echoed) = echoed
+#else
+macros:
+  reply(c2, dh2, ch1, ch2, sig, dh1) = <'rep', c2, dh2, ch1, ch2, sig>,
+  final(ch1, ch2, sig, dh1) = <'fin', ch1, ch2, sig>,
+  signed_dh1(own, echoed) = own
+#endif
+
+/* A broken component gives its secrets to the attacker. */
+#ifdef BREAKKEM
+macros:
+  kem_leak(dk) = dk
+#else
+macros:
+  kem_leak(dk) = 'intact'
+#endif
+#ifdef BREAKDH
+macros:
+  dh_leak(x) = x
+#else
+macros:
+  dh_leak(x) = 'intact'
+#endif
+
+#ifdef CHECK
+macros:
+  checked(x) = x
+#else
+macros:
+  checked(x) = 'unchecked'
+#endif
+
+restriction Equality:
+  "All x y #i. Eq(x, y) @ #i ==> x = y"
+
+restriction Inequality:
+  "All x #i. Neq(x, x) @ #i ==> F"
+
+/* Identity certificates: the Identity CA binds a participant to its key. */
+rule Register:
+  [ Fr(~ltk) ]
+  --[ Register($A) ]->
+  [ !Ltk($A, ~ltk), !Pk($A, pk(~ltk)), Out(pk(~ltk)) ]
+
+restriction Single_registration:
+  "All A #i #j. Register(A) @ #i & Register(A) @ #j ==> #i = #j"
+
+rule Reveal_ltk:
+  [ !Ltk(A, ltk) ] --[ RevLtk(A) ]-> [ Out(ltk) ]
+
+
+/* Discovery tells the initiator what the peer supports. It is not
+   authenticated: the attacker may rewrite it. Honest participants support
+   everything; the initiator picks by what discovery said. */
+rule Announce:
+  [ !Ltk($A, ltk) ] --> [ Out(<'announce', $A, 'all'>) ]
+
+#ifdef NEGOTIATE
+rule Policy:
+  [ ] --> [ !Policy('all', 'strong'), !Policy('weakonly', 'weak') ]
+
+/* The weak KEM is broken: its secret reaches the attacker. */
+rule Weak_kem_broken:
+  [ Leak('weak', s) ] --> [ Out(s) ]
+#else
+rule Policy:
+  [ ] --> [ !Policy('all', 'kem') ]
+#endif
+
+/* Initiator: begin_handshake_request. */
+rule Init_request:
+  let c1 = <'c1', $A, pk(ltkA), 'all', alg>
+      dh1 = share1(~x, ~dk)
+  in
+  [ !Ltk($A, ltkA), Fr(~ch1), Fr(~x), Fr(~dk)
+  , In(<'announce', $B, announced>), !Policy(announced, alg) ]
+  --[ Neq($A, $B) ]->
+  [ Init_wait($A, $B, ltkA, ~ch1, ~x, ~dk, c1, dh1, alg, announced)
+  , Out(<'req', c1, dh1, ~ch1>), Out(<kem_leak(~dk), dh_leak(~x)>) ]
+
+/* Replier: begin_handshake_reply. */
+rule Resp_reply:
+  let c1 = <'c1', A, pkA, pdA, alg>
+      hc1 = h(c1)
+      c2 = <'c2', $B, pk(ltkB), 'all', alg>
+      hc2 = h(c2)
+      dh2 = share2(dh1, ~y, ~k)
+      s = secret_r(dh1, ~y, ~k)
+      ss = shared(s, hc1, hc2, ch1, ~ch2, dh1, dh2)
+      sigB = sign(<hc2, ~ch2, dh2, ch1, dh1, hc1>, ltkB)
+  in
+  [ !Ltk($B, ltkB), !Pk(A, pkA), Fr(~ch2), Fr(~y), Fr(~k)
+  , In(<'req', c1, dh1, ch1>) ]
+  --[ Neq(A, $B), Running($B, A, 'R', <hc1, hc2, ch1, ~ch2, dh1, dh2, alg, ss>) ]->
+  [ Resp_wait($B, A, pkA, hc1, hc2, ch1, ~ch2, dh1, dh2, alg, ss)
+  , Out(reply(c2, dh2, ch1, ~ch2, sigB, dh1)), Out(dh_leak(~y))
+  , Leak(alg, s) ]
+
+/* Initiator: process_handshake on the Reply, sends the Final. */
+rule Init_final:
+  let c2 = <'c2', $B, pkB, pdB, alg>
+      hc1 = h(c1)
+      hc2 = h(c2)
+      s = secret_i(dh2, ~x, ~dk)
+      ss = shared(s, hc1, hc2, ~ch1, ch2, dh1, dh2)
+      sigA = sign(<hc1, ~ch1, dh1, ch2, dh2, hc2>, ltkA)
+  in
+  [ Init_wait($A, $B, ltkA, ~ch1, ~x, ~dk, c1, dh1, alg, announced)
+  , !Pk($B, pkB)
+  , In(reply(c2, dh2, ~ch1, ch2, sigB, dh1echo)) ]
+  --[ Eq(verify(sigB, <hc2, ch2, dh2, ~ch1, signed_dh1(dh1, dh1echo), hc1>, pkB), true)
+    , Eq(checked(pdB), checked(announced))
+    , Commit($A, $B, 'I', <hc1, hc2, ~ch1, ch2, dh1, dh2, alg, ss>)
+    , Running($A, $B, 'I', <hc1, hc2, ~ch1, ch2, dh1, dh2, alg, ss>)
+    , Secret($A, $B, ss)
+    , Alg($A, $B, alg) ]->
+  [ Out(final(~ch1, ch2, sigA, dh1)) ]
+
+/* Replier: process_handshake on the Final. */
+rule Resp_done:
+  [ Resp_wait($B, A, pkA, hc1, hc2, ch1, ch2, dh1, dh2, alg, ss)
+  , In(final(ch1, ch2, sigA, dh1echo)) ]
+  --[ Eq(verify(sigA, <hc1, ch1, signed_dh1(dh1, dh1echo), ch2, dh2, hc2>, pkA), true)
+    , Commit($B, A, 'R', <hc1, hc2, ch1, ch2, dh1, dh2, alg, ss>)
+    , Secret($B, A, ss)
+    , Alg($B, A, alg) ]->
+  [ ]
+
+/* 1. Both sides can complete a handshake with each other. */
+lemma executable:
+  exists-trace
+  "Ex A B d #i #j.
+     Commit(A, B, 'I', d) @ #i & Commit(B, A, 'R', d) @ #j
+     & not (Ex X #r. RevLtk(X) @ #r)"
+
+/* 2. The shared secret stays secret while neither long-term key is
+      revealed. */
+lemma secrecy:
+  "All A B ss #i. Secret(A, B, ss) @ #i ==>
+     not (Ex #j. K(ss) @ #j)
+     | (Ex #r. RevLtk(A) @ #r) | (Ex #r. RevLtk(B) @ #r)"
+
+/* 3. Forward secrecy: revealing the keys after the handshake does not
+      help. */
+lemma forward_secrecy:
+  "All A B ss #i. Secret(A, B, ss) @ #i ==>
+     not (Ex #j. K(ss) @ #j)
+     | (Ex #r. RevLtk(A) @ #r & #r < #i) | (Ex #r. RevLtk(B) @ #r & #r < #i)"
+
+/* 4. Injective agreement on everything both sides sign and derive,
+      including the algorithm. */
+lemma agreement_initiator:
+  "All A B d #i. Commit(A, B, 'I', d) @ #i ==>
+     (Ex #j. Running(B, A, 'R', d) @ #j & #j < #i
+        & not (Ex A2 B2 #i2. Commit(A2, B2, 'I', d) @ #i2 & not (#i2 = #i)))
+     | (Ex #r. RevLtk(B) @ #r)"
+
+lemma agreement_replier:
+  "All B A d #i. Commit(B, A, 'R', d) @ #i ==>
+     (Ex #j. Running(A, B, 'I', d) @ #j & #j < #i
+        & not (Ex B2 A2 #i2. Commit(B2, A2, 'R', d) @ #i2 & not (#i2 = #i)))
+     | (Ex #r. RevLtk(A) @ #r)"
+
+/* 6. No downgrade: honest participants support the strong KEM, so a
+      handshake between them never ends with the weak one. */
+lemma no_downgrade:
+  "All A B #i. Alg(A, B, 'weak') @ #i ==>
+     (Ex #r. RevLtk(A) @ #r) | (Ex #r. RevLtk(B) @ #r)"
+
+end
