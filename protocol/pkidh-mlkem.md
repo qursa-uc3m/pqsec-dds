@@ -94,7 +94,37 @@ implicit for Diffie-Hellman.
 
 The certificate in `c.id` and the Identity CA certificate may use ML-DSA. The
 initiator chooses `c.kagree_algo`; a Reply naming another algorithm is
-rejected.
+rejected. Signature and key establishment stay independent, as in 1.2: an
+ECDSA identity with a KEM is a valid combination, and the one that protects
+recorded traffic without a new PKI (`pkidh-mlkem-sizes.md`).
+
+### Text that assumes Diffie-Hellman
+
+The plugin keeps its name, `DDS:Auth:PKI-DH`, and the properties keep theirs,
+`dh1` and `dh2`. The names are inside the class ids and inside the signed
+transcripts, so renaming them would make every new implementation unable to
+authenticate with every existing one, and gain nothing. What changes is the
+text that describes them:
+
+- Table 56, `dh1`: "The Key Agreement Public Key chosen by the Participant"
+  becomes "The initiator's key establishment value: its Key Agreement Public
+  Key, or for a KEM its encapsulation key".
+- Table 57, `dh2`: "The Key Agreement Public Key chosen by the Participant"
+  becomes "The replier's key establishment value: its Key Agreement Public
+  Key, or for a KEM the ciphertext encapsulated to `dh1`".
+- After Table 56: "The encoding of the Key Agreement Public Key [...] applies
+  to the setting of the binary property value for the property dh1" becomes
+  "The encoding of the key establishment values depends on the algorithm and
+  is described in 8.3. This applies to the properties dh1 and dh2".
+- Table 59, `process_handshake` after `begin_handshake_request`: the
+  sentence says the private key was used "to compute the
+  HandshakeFinalMessageToken dh1 property". The initiator computes `dh1`
+  for the HandshakeRequestMessageToken; the Final only echoes it. Add: "For
+  a KEM, the operation decapsulates the ciphertext in dh2 with the
+  decapsulation key that belongs to dh1".
+- Table 59, `process_handshake` after `begin_handshake_reply`: add "For a
+  KEM, the shared secret is the one obtained when begin_handshake_reply
+  encapsulated to dh1".
 
 One more rule applies to every key establishment algorithm, not only the
 new ones. With `AUTO` (10.3.1.4) the plugin chooses, and the only thing it

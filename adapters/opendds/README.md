@@ -5,7 +5,7 @@ OpenDDS. It uses OpenSSL EVP with the native provider implementations in
 OpenSSL 3.6 or newer:
 
 - X25519MLKEM768 (default), ML-KEM-768 or ML-KEM-1024 for the shared secret
-- ML-DSA-65 or ML-DSA-87 X.509 identity certificates for mutual
+- ML-DSA-65, ML-DSA-87 or ECDSA P-256 X.509 identity certificates for mutual
   authentication
 
 No other OpenSSL provider is loaded.
@@ -85,10 +85,11 @@ ctest --test-dir adapters/opendds/build --output-on-failure
 The tests cover the three KEMs and two ML-DSA parameter sets above, OpenSSL's
 rejection of invalid encapsulation keys and hybrid X25519 shares, the shared protocol vectors, a complete two-peer
 Authentication handshake using ML-DSA X.509 certificates for each KEM,
+handshakes with ECDSA P-256 identities alone and mixed with ML-DSA,
 shared-secret equality, tampered signatures, a substituted `dh1` or `dh2`,
 altered credentials, the initiator's choice of KEM, classical or mismatched
 algorithms, echoes that differ from the local value, challenge mismatches, certificates from
-an unrelated CA, a classical identity CA, replay rejection, and loading the
+an unrelated CA, a P-384 identity, replay rejection, and loading the
 plugin from an INI file without linking it into the test executable.
 
 ## Configuration
@@ -112,9 +113,12 @@ UtilityConfig=BuiltIn
 ```
 
 Configure the ordinary DDS Security certificate, permissions, and governance QoS
-properties on each participant.  The identity certificate and its private key
-must use the same ML-DSA parameter set, and the identity CA must also use
-ML-DSA.  The permissions CA and signed governance/permissions
+properties on each participant.  The identity certificate and the identity CA
+use ML-DSA-65, ML-DSA-87 or ECDSA P-256, in any combination. An ECDSA identity
+still gets an ML-KEM handshake: that protects recorded traffic without
+changing the PKI, and keeps the handshake small (see
+[protocol/pkidh-mlkem-sizes.md](../../protocol/pkidh-mlkem-sizes.md)).  The
+permissions CA and signed governance/permissions
 documents can continue to use an algorithm supported by OpenDDS's built-in Access
 Control plugin.
 
@@ -126,9 +130,10 @@ selects the KEM this participant uses when it initiates: `X25519MLKEM768`,
 and combines X25519 with ML-KEM-768 inside the provider.
 
 Through `set_participant_security_config` the plugin announces in discovery
-the three KEMs and both ML-DSA levels as supported, and its own KEM and ML-DSA
-levels as required, using the provisional vendor-range bits of the protocol
-document. A participant configuration that removes a KEM from the supported
+the three KEMs, both ML-DSA levels and ECDSA P-256 as supported, and its own
+KEM and the signature algorithms of its credentials as required. ML-KEM and
+ML-DSA use the provisional vendor-range bits of the protocol document; ECDSA
+P-256 uses its 1.2 bit. A participant configuration that removes a KEM from the supported
 set also stops the plugin from accepting it as replier. Vendor-range bits are
 interpreted per RTPS vendor, so this negotiation only works between OpenDDS
 participants.

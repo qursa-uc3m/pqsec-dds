@@ -105,8 +105,8 @@ breaking ECDSA later does not reveal recorded traffic. PKI-DH negotiates
 `c.dsign_algo` and `c.kagree_algo` independently, so ECDSA-P256 identities
 with X25519MLKEM768 are already a valid combination: 10.3 KB and 9
 fragments, against 40 KB and 31 for ML-DSA-65. That is a sensible first
-step for deployments whose PKI is not ready for ML-DSA. (The adapters here
-accept ML-DSA identities only.)
+step for deployments whose PKI is not ready for ML-DSA, and both adapters
+here accept it.
 
 **DER instead of PEM in `c.id`** would save 4 KB per ML-DSA-65 handshake
 (10%), but changes an existing wire format. Not proposed.
