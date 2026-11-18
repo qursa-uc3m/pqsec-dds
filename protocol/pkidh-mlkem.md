@@ -96,6 +96,21 @@ The certificate in `c.id` and the Identity CA certificate may use ML-DSA. The
 initiator chooses `c.kagree_algo`; a Reply naming another algorithm is
 rejected.
 
+One more rule applies to every key establishment algorithm, not only the
+new ones. With `AUTO` (10.3.1.4) the plugin chooses, and the only thing it
+knows about the peer's support is the algorithm info from discovery, which
+nothing authenticates. A plugin that chooses by it ("ML-KEM if the peer has
+it, otherwise ECDH") can be steered by an attacker who rewrites discovery:
+two participants that both support ML-KEM settle on an algorithm both still
+accept, such as `ECDH+prime256v1-CEUM`. The peer's real algorithm info is
+also inside its `c.pdata`, which is hashed and signed. So: once the
+handshake has been verified, the algorithm info in the peer's `c.pdata`
+must equal what discovery delivered for that peer, or the peer is not
+authenticated. The formal model finds the downgrade without this check and
+none with it (`formal/README.md`). Plugins that always use one configured
+algorithm, as the adapters here and the OpenDDS built-in plugin do, are not
+exposed, but they cannot adapt to the peer either.
+
 ## 10.4 Governance
 
 `DigitalSignatureKind` and `KeyEstablishmentKind` in the governance XSD
@@ -124,21 +139,23 @@ signature" becomes "The signer certificate should not be included within the
 signature". The CycloneDDS and OpenDDS plugins already accept documents
 without it.
 
-## Open questions
+## Questions
 
-Q1 and Q2 are checked by the formal model in `formal/`, not settled here.
+Q1 and Q2 were answered with the Tamarin model in `formal/`.
 
 - **Q1.** Is `SharedSecret = SHA-256(secret)` enough, or must the derivation
   also cover the transcript? For `X25519MLKEM768` this matters most: the TLS
   draft warns that the plain concatenation is analysed only with the TLS 1.3
-  transcript and may not be secure elsewhere. In PKI-DH, `dh1` and `dh2` are
-  inside both signatures, but they are not inputs to the derivation. If the
-  model confirms the plain rule, the proposal adds no derivation. If it does
-  not, the hybrid row changes to a combiner that hashes the X25519 shares
-  into the secret, as X-Wing (draft-connolly-cfrg-xwing-kem) does.
-- **Q2.** Is the algorithm choice protected against downgrade? The algorithm
-  info travels in discovery unauthenticated and again inside `c.pdata`,
-  which is hashed and signed. 1.2 does not require comparing the two.
+  transcript. *Answer:* the plain rule is enough in the model, for a KEM
+  without binding properties and for the hybrid with either component
+  broken, because `dh1` and `dh2` are inside both signatures and each side
+  uses its own copies (rule 2). The proposal adds no derivation and no
+  combiner. This is a symbolic result; it does not exclude computational
+  weaknesses of the plain concatenation.
+- **Q2.** Is the algorithm choice protected against downgrade? *Answer:*
+  not when the initiator's choice depends on discovery. The model finds the
+  downgrade through rewritten discovery data; the comparison rule at the end
+  of 10.3 above removes it.
 - **Q3.** Should the profile add a composite signature, ML-DSA-65 with
   ECDSA-P256 as `MLDSA65-ECDSA-P256-SHA512` of RFC 10073? European
   guidance asks for ML-DSA to be combined with a classical signature, and
