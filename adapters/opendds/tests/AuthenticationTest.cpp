@@ -144,6 +144,9 @@ struct Exchange {
       : a(1, "a", "identity_ca_cert.pem", kem),
         b(2, "b", "identity_ca_cert.pem", other_kem ? other_kem : kem), initiator(0), replier(0) {}
 
+  Exchange(const char* name_a, const char* name_b, const char* ca)
+      : a(1, name_a, ca), b(2, name_b, ca), initiator(0), replier(0) {}
+
   bool prepare_request() {
     if (!initialize(a) || !initialize(b))
       return false;
@@ -198,8 +201,8 @@ struct Exchange {
   }
 };
 
-bool happy_path_and_replay_test(const char* kem) {
-  Exchange exchange(kem);
+// Runs the Reply and Final through both sides and compares the shared secrets.
+bool completes(Exchange& exchange) {
   if (!exchange.prepare_request() || !exchange.prepare_reply())
     return false;
   DDS::Security::HandshakeMessageToken final_message;
@@ -224,11 +227,16 @@ bool happy_path_and_replay_test(const char* kem) {
     return false;
   DDS::OctetSeq_var first_bytes = first->sharedSecret();
   DDS::OctetSeq_var second_bytes = second->sharedSecret();
-  if (!check(first_bytes->length() != 0 &&
-                 OpenDDS_PQSec::equal(first_bytes.in(), second_bytes.in()),
-             "KEM shared secrets differ", exchange.initiator->exception))
-    return false;
+  return check(first_bytes->length() != 0 &&
+                   OpenDDS_PQSec::equal(first_bytes.in(), second_bytes.in()),
+               "KEM shared secrets differ", exchange.initiator->exception);
+}
 
+bool happy_path_and_replay_test(const char* kem) {
+  Exchange exchange(kem);
+  if (!completes(exchange))
+    return false;
+  DDS::Security::HandshakeMessageToken unused;
   return check(exchange.initiator->authentication.process_handshake(
                    unused, exchange.reply, exchange.initiator->handshake,
                    exchange.initiator->exception) == DDS::Security::VALIDATION_FAILED,
@@ -263,9 +271,11 @@ bool security_config_test() {
   const DDS::Security::CryptoAlgorithmRequirements& signature =
       adjusted.digital_signature.message_auth;
   const DDS::Security::CryptoAlgorithmRequirements& chain = adjusted.digital_signature.trust_chain;
+  const DDS::Security::CryptoAlgorithmSet signatures =
+      0x00030000 | DDS::Security::CBIT_ECDSA_P256_SHA256;
   if (!check(kem.supported_mask == 0x00070000 && kem.required_mask == 0x00040000 &&
-                 signature.supported_mask == 0x00030000 && signature.required_mask == 0x00010000 &&
-                 chain.supported_mask == 0x00030000 && chain.required_mask == 0x00010000,
+                 signature.supported_mask == signatures && signature.required_mask == 0x00010000 &&
+                 chain.supported_mask == signatures && chain.required_mask == 0x00010000,
              "unexpected adjusted algorithm info", participant.exception))
     return false;
 
@@ -582,13 +592,47 @@ bool different_ca_test() {
                "certificate from a different CA was accepted", replier->exception);
 }
 
-bool classical_ca_test() {
-  Participant participant(1, "ecca", "ec_ca_cert.pem");
+// ECDSA P-256 identities, alone or mixed with ML-DSA, authenticate with a KEM.
+bool ecdsa_identity_test(const char* a, const char* b, const char* ca, const char* description) {
+  Exchange exchange(a, b, ca);
+  if (completes(exchange))
+    return true;
+  std::cerr << description << '\n';
+  return false;
+}
+
+bool ecdsa_identity_tests() {
+  return ecdsa_identity_test("eca", "ecb", "ec_ca_cert.pem", "ECDSA identities failed") &&
+         ecdsa_identity_test("eca", "ecca", "ec_ca_cert.pem",
+                             "ECDSA and ML-DSA identities under an ECDSA CA failed") &&
+         ecdsa_identity_test("ecleaf", "a", "identity_ca_cert.pem",
+                             "ECDSA and ML-DSA identities under an ML-DSA CA failed");
+}
+
+// An ECDSA identity announces the 1.2 bit of ECDSA over P-256.
+bool ecdsa_security_config_test() {
+  Participant participant(1, "eca", "ec_ca_cert.pem");
+  if (!initialize(participant))
+    return false;
+  DDS::Security::ParticipantSecurityConfig config = open_config();
+  DDS::Security::ParticipantSecurityAlgorithmInfo adjusted;
+  return check(participant.authentication.set_participant_security_config(
+                   adjusted, participant.local, config, participant.exception) &&
+                   adjusted.digital_signature.message_auth.required_mask ==
+                       DDS::Security::CBIT_ECDSA_P256_SHA256 &&
+                   adjusted.digital_signature.trust_chain.required_mask ==
+                       DDS::Security::CBIT_ECDSA_P256_SHA256,
+               "unexpected ECDSA algorithm info", participant.exception);
+}
+
+// Elliptic curves other than P-256 stay out.
+bool p384_identity_test() {
+  Participant participant(1, "p384", "p384_ca_cert.pem");
   return check(participant.authentication.validate_local_identity(
                    participant.local, participant.adjusted, 0, participant.qos,
                    participant.candidate,
                    participant.exception) == DDS::Security::VALIDATION_FAILED,
-               "identity CA with a classical key was accepted", participant.exception);
+               "a P-384 identity was accepted", participant.exception);
 }
 
 bool classical_configuration_test() {
@@ -610,8 +654,8 @@ int main() {
                  credential_binding_test() && initiator_chooses_test() &&
                  classical_request_test() && reply_algorithm_test() && reply_echo_test() &&
                  final_mismatch_test() && challenge_length_tests() && different_ca_test() &&
-                 classical_ca_test() && classical_configuration_test() && security_config_test() &&
-                 narrowed_replier_test()
+                 ecdsa_identity_tests() && ecdsa_security_config_test() && p384_identity_test() &&
+                 classical_configuration_test() && security_config_test() && narrowed_replier_test()
              ? 0
              : 1;
 }

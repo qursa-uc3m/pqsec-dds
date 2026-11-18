@@ -47,7 +47,8 @@ typedef struct {
 static struct ddsi_domaingv gv;
 static DDS_Security_SecurityException ex;
 static long next_serial = 1;
-static identity mldsa, other_ca, ec_ca, ec_participant;
+static identity mldsa, other_ca, ec_ca, ec_participant, ecdsa, ecdsa_peer, mldsa_peer, p384_ca,
+    p384_participant;
 
 static bool check(bool condition, const char *message) {
   if (!condition) {
@@ -99,22 +100,36 @@ static X509 *make_certificate(EVP_PKEY *key, const char *name, X509 *issuer, EVP
 }
 
 static EVP_PKEY *make_key(const char *algorithm) {
-  return strcmp(algorithm, "EC") == 0 ? EVP_PKEY_Q_keygen(NULL, NULL, "EC", "P-256")
-                                      : EVP_PKEY_Q_keygen(NULL, NULL, algorithm);
+  return strcmp(algorithm, "EC") == 0        ? EVP_PKEY_Q_keygen(NULL, NULL, "EC", "P-256")
+         : strcmp(algorithm, "EC-P384") == 0 ? EVP_PKEY_Q_keygen(NULL, NULL, "EC", "P-384")
+                                             : EVP_PKEY_Q_keygen(NULL, NULL, algorithm);
 }
 
-/* A CA and one participant certificate issued by it. */
-static void make_identity(identity *id, const char *ca_algorithm, const char *algorithm) {
-  EVP_PKEY *ca_key = make_key(ca_algorithm), *key = make_key(algorithm);
-  X509 *ca = make_certificate(ca_key, "PQSec Test CA", NULL, NULL);
+static void issue(identity *id, X509 *ca, EVP_PKEY *ca_key, const char *algorithm) {
+  EVP_PKEY *key = make_key(algorithm);
   X509 *certificate = make_certificate(key, "PQSec Test Participant", ca, ca_key);
   id->ca = to_data_uri(ca, NULL);
   id->certificate = to_data_uri(certificate, NULL);
   id->private_key = to_data_uri(NULL, key);
   X509_free(certificate);
-  X509_free(ca);
   EVP_PKEY_free(key);
+}
+
+/* A CA and one participant certificate issued by it, or two (b may be NULL). */
+static void make_identities(identity *a, identity *b, const char *ca_algorithm,
+                            const char *algorithm_a, const char *algorithm_b) {
+  EVP_PKEY *ca_key = make_key(ca_algorithm);
+  X509 *ca = make_certificate(ca_key, "PQSec Test CA", NULL, NULL);
+  issue(a, ca, ca_key, algorithm_a);
+  if (b) {
+    issue(b, ca, ca_key, algorithm_b);
+  }
+  X509_free(ca);
   EVP_PKEY_free(ca_key);
+}
+
+static void make_identity(identity *id, const char *ca_algorithm, const char *algorithm) {
+  make_identities(id, NULL, ca_algorithm, algorithm, NULL);
 }
 
 static void free_identity(identity *id) {
@@ -241,10 +256,14 @@ static DDS_Security_ValidationResult_t process_reply(exchange *e) {
   return process_handshake(e->initiator->auth, &e->final, &e->reply, e->initiator->handshake, &ex);
 }
 
-static bool prepare_with(exchange *e, const char *kem_a, const char *kem_b) {
+static bool prepare_between(exchange *e, const identity *a, const identity *b, const char *kem_a,
+                            const char *kem_b) {
   memset(e, 0, sizeof *e);
-  return start(&e->a, 1, &mldsa, kem_a) && start(&e->b, 2, &mldsa, kem_b) && introduce(e) &&
-         request(e);
+  return start(&e->a, 1, a, kem_a) && start(&e->b, 2, b, kem_b) && introduce(e) && request(e);
+}
+
+static bool prepare_with(exchange *e, const char *kem_a, const char *kem_b) {
+  return prepare_between(e, &mldsa, &mldsa, kem_a, kem_b);
 }
 
 static bool prepare(exchange *e) {
@@ -554,12 +573,49 @@ static bool retransmission_test(void) {
   return ok;
 }
 
-static bool classical_identity_test(void) {
+/* ECDSA P-256 identities, alone or mixed with ML-DSA, complete a handshake
+ * whose key establishment is still a KEM. */
+static bool identity_test(const identity *a, const identity *b, const char *description) {
+  exchange e;
+  const bool ok = check(prepare_between(&e, a, b, "X25519MLKEM768", "X25519MLKEM768") &&
+                            reply(&e) && complete(&e),
+                        description);
+  finish(&e);
+  return ok;
+}
+
+/* Other implementations know the algorithm by its 1.1 name only. */
+static bool ecdsa_wire_name_test(void) {
+  static const char name[] = "ECDSA-SHA256";
+  exchange e;
+  const bool ok = prepare_between(&e, &ecdsa, &ecdsa, NULL, NULL);
+  const DDS_Security_OctetSeq *sent = ok ? property(&e.request, "c.dsign_algo") : NULL;
+  const bool named =
+      check(sent && sent->_length == sizeof name && memcmp(sent->_buffer, name, sizeof name) == 0,
+            "ECDSA identity not sent as ECDSA-SHA256");
+  finish(&e);
+  return named;
+}
+
+static bool ecdsa_identity_tests(void) {
+  return ecdsa_wire_name_test() &&
+         identity_test(&ecdsa, &ecdsa, "ECDSA identities did not authenticate") &&
+         identity_test(&ec_ca, &ec_ca, "ML-DSA identity under an ECDSA CA did not authenticate") &&
+         identity_test(&ec_participant, &ec_participant,
+                       "ECDSA identity under an ML-DSA CA did not authenticate") &&
+         identity_test(&ecdsa_peer, &mldsa_peer,
+                       "ECDSA and ML-DSA participants did not authenticate each other") &&
+         identity_test(&mldsa_peer, &ecdsa_peer,
+                       "ML-DSA and ECDSA participants did not authenticate each other");
+}
+
+/* Other curves and classical key establishment stay out. */
+static bool rejected_identity_test(void) {
   participant p;
-  bool ok = check(!start(&p, 1, &ec_ca, NULL), "identity CA with a classical key was accepted");
+  bool ok = check(!start(&p, 1, &p384_ca, NULL), "identity CA with a P-384 key was accepted");
   stop(&p);
-  ok = ok && check(!start(&p, 1, &ec_participant, NULL),
-                   "identity certificate with a classical key was accepted");
+  ok = ok && check(!start(&p, 1, &p384_participant, NULL),
+                   "identity certificate with a P-384 key was accepted");
   stop(&p);
   ok = ok && check(!start(&p, 1, &mldsa, "ECDHE-CEUM+P256"),
                    "a classical key establishment algorithm was configured");
@@ -587,6 +643,10 @@ int main(void) {
   make_identity(&other_ca, "ML-DSA-65", "ML-DSA-65");
   make_identity(&ec_ca, "EC", "ML-DSA-65");
   make_identity(&ec_participant, "ML-DSA-65", "EC");
+  make_identity(&ecdsa, "EC", "EC");
+  make_identities(&ecdsa_peer, &mldsa_peer, "EC", "EC", "ML-DSA-65");
+  make_identity(&p384_ca, "EC-P384", "ML-DSA-65");
+  make_identity(&p384_participant, "ML-DSA-65", "EC-P384");
 
   const bool ok = happy_path_test("ML-KEM-768") && happy_path_test("ML-KEM-1024") &&
                   happy_path_test("X25519MLKEM768") && happy_path_test("AUTO") &&
@@ -594,11 +654,17 @@ int main(void) {
                   substituted_ciphertext_test() && credential_binding_test() &&
                   tampered_final_test() && retransmission_test() && initiator_chooses_test() &&
                   classical_request_test() && reply_algorithm_test() && reply_echo_test() &&
-                  final_mismatch_test() && classical_identity_test() && different_ca_test();
+                  final_mismatch_test() && ecdsa_identity_tests() && rejected_identity_test() &&
+                  different_ca_test();
 
   free_identity(&mldsa);
   free_identity(&other_ca);
   free_identity(&ec_ca);
   free_identity(&ec_participant);
+  free_identity(&ecdsa);
+  free_identity(&ecdsa_peer);
+  free_identity(&mldsa_peer);
+  free_identity(&p384_ca);
+  free_identity(&p384_participant);
   return ok ? 0 : 1;
 }

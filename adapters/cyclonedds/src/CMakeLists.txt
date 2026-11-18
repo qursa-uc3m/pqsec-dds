@@ -107,7 +107,7 @@ if(BUILD_TESTING)
   endif()
   add_test(NAME cyclonedds.pq_kem COMMAND pqsec_cyclonedds_kem_test)
 
-  add_executable(pqsec_cyclonedds_signature_test tests/pq_signature_test.c)
+  add_executable(pqsec_cyclonedds_signature_test tests/signature_test.c)
   target_include_directories(pqsec_cyclonedds_signature_test PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}")
   target_link_libraries(pqsec_cyclonedds_signature_test PRIVATE
@@ -118,7 +118,7 @@ if(BUILD_TESTING)
     target_compile_options(pqsec_cyclonedds_signature_test PRIVATE
       -Wall -Wextra -Wpedantic -Werror)
   endif()
-  add_test(NAME cyclonedds.mldsa_transcript
+  add_test(NAME cyclonedds.signature
            COMMAND pqsec_cyclonedds_signature_test)
 
   add_executable(pqsec_cyclonedds_vector_test

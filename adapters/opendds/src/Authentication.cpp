@@ -20,7 +20,10 @@
 #include <cstring>
 #include <utility>
 
+#include <openssl/core_names.h>
 #include <openssl/crypto.h>
+#include <openssl/evp.h>
+#include <openssl/x509.h>
 
 namespace OpenDDS_PQSec {
 
@@ -68,10 +71,24 @@ std::string string_value(const DDS::OctetSeq& value) {
   return std::strlen(text) == length - 1 ? std::string(text) : std::string();
 }
 
-// Provisional CryptoAlgorithmBits from the vendor range (protocol/pkidh-mlkem.md).
-// Zero means the algorithm is not in the profile.
-DDS::Security::CryptoAlgorithmBit signature_bit(const std::string& value) {
-  return value == "ML-DSA-65" ? 0x00010000 : value == "ML-DSA-87" ? 0x00020000 : 0;
+// The signature algorithm of a certificate, as its CryptoAlgorithmBit: the
+// provisional vendor-range bits of the ML-DSA rows (protocol/pkidh-mlkem.md),
+// or the 1.2 bit of ECDSA over P-256 for identities that stay classical.
+// OpenDDS calls every elliptic-curve key ECDSA-SHA256, so the curve is checked
+// here. Zero means the algorithm is not accepted.
+DDS::Security::CryptoAlgorithmBit signature_bit(const OpenDDS::Security::SSL::Certificate& cert) {
+  const std::string algorithm = cert.dsign_algo();
+  if (algorithm == "ML-DSA-65")
+    return 0x00010000;
+  if (algorithm == "ML-DSA-87")
+    return 0x00020000;
+  char group[16] = {0};
+  EVP_PKEY* key = cert.x509() ? X509_get0_pubkey(cert.x509()) : 0;
+  if (algorithm == "ECDSA-SHA256" && key &&
+      EVP_PKEY_get_utf8_string_param(key, OSSL_PKEY_PARAM_GROUP_NAME, group, sizeof group, 0) &&
+      std::strcmp(group, "prime256v1") == 0)
+    return DDS::Security::CBIT_ECDSA_P256_SHA256;
+  return 0;
 }
 
 DDS::Security::CryptoAlgorithmBit kem_bit(const std::string& value) {
@@ -81,7 +98,8 @@ DDS::Security::CryptoAlgorithmBit kem_bit(const std::string& value) {
                                      : 0;
 }
 
-const DDS::Security::CryptoAlgorithmSet SIGNATURES = 0x00030000;
+const DDS::Security::CryptoAlgorithmSet SIGNATURES =
+    0x00030000 | DDS::Security::CBIT_ECDSA_P256_SHA256;
 const DDS::Security::CryptoAlgorithmSet KEMS = 0x00070000;
 
 bool initiator(const OpenDDS::DCPS::GUID_t& local, const OpenDDS::DCPS::GUID_t& remote) {
@@ -224,9 +242,9 @@ DDS::Security::ValidationResult_t Authentication::validate_local_identity(
     fail(ex, "PQSec failed to load or validate local credentials");
     return DDS::Security::VALIDATION_FAILED;
   }
-  if (!signature_bit(credentials->get_participant_cert().dsign_algo()) ||
-      !signature_bit(credentials->get_ca_cert().dsign_algo())) {
-    fail(ex, "PQSec requires ML-DSA identity and identity CA certificates");
+  if (!signature_bit(credentials->get_participant_cert()) ||
+      !signature_bit(credentials->get_ca_cert())) {
+    fail(ex, "PQSec requires ML-DSA or ECDSA P-256 identity and identity CA certificates");
     return DDS::Security::VALIDATION_FAILED;
   }
 
@@ -289,8 +307,8 @@ CORBA::Boolean Authentication::get_identity_status_token(DDS::Security::Identity
 }
 
 // DDS Security 1.2, 9.3.2.11.11. Supported masks keep only what this plugin
-// implements. Required masks gain what it uses: both ML-DSA levels of its
-// credentials, and the KEM it initiates with. A KEM it only accepts as replier
+// implements. Required masks gain what it uses: the signature algorithms of
+// its credentials, and the KEM it initiates with. A KEM it only accepts as replier
 // stays in the supported mask, since the initiator chooses.
 CORBA::Boolean Authentication::set_participant_security_config(
     DDS::Security::ParticipantSecurityAlgorithmInfo& adjusted, DDS::Security::IdentityHandle handle,
@@ -308,10 +326,9 @@ CORBA::Boolean Authentication::set_participant_security_config(
   DDS::Security::CryptoAlgorithmRequirements& shared_secret =
       adjusted.key_establishment.shared_secret;
   trust_chain.supported_mask &= SIGNATURES;
-  trust_chain.required_mask |= signature_bit(identity->credentials->get_ca_cert().dsign_algo());
+  trust_chain.required_mask |= signature_bit(identity->credentials->get_ca_cert());
   message_auth.supported_mask &= SIGNATURES;
-  message_auth.required_mask |=
-      signature_bit(identity->credentials->get_participant_cert().dsign_algo());
+  message_auth.required_mask |= signature_bit(identity->credentials->get_participant_cert());
   shared_secret.supported_mask &= KEMS;
   shared_secret.required_mask |= kem_bit(identity->kem_algorithm);
 
@@ -470,7 +487,7 @@ bool Authentication::validate_remote_credentials(
   const std::string signature_algorithm =
       string_value(reader.get_bin_property_value("c.dsign_algo"));
   const std::string selected_kem = string_value(reader.get_bin_property_value("c.kagree_algo"));
-  if (!signature_bit(signature_algorithm) || selected_kem != hs.kem.algorithm()) {
+  if (selected_kem != hs.kem.algorithm()) {
     fail(ex, "Unsupported or mismatched PQSec algorithms");
     return false;
   }
@@ -478,10 +495,10 @@ bool Authentication::validate_remote_credentials(
       new OpenDDS::Security::SSL::Certificate);
   if (certificate->deserialize(certificate_data) ||
       certificate->validate(hs.local->credentials->get_ca_cert()) != X509_V_OK ||
-      certificate->dsign_algo() != signature_algorithm ||
+      certificate->dsign_algo() != signature_algorithm || !signature_bit(*certificate) ||
       !cert_matches_guid(*certificate, hs.remote->guid) ||
       !participant_data_has_guid(participant_data, hs.remote->guid)) {
-    fail(ex, "Remote ML-DSA certificate, adjusted GUID, or participant data is invalid");
+    fail(ex, "Remote certificate, adjusted GUID, or participant data is invalid");
     return false;
   }
   if (credential_hash(certificate_data, permissions, participant_data, signature_algorithm,
@@ -574,7 +591,7 @@ DDS::Security::ValidationResult_t Authentication::begin_handshake_reply(
   DDS::OctetSeq signature;
   if (OpenDDS::Security::SSL::sign_serialized(
           transcript, local_identity->credentials->get_participant_private_key(), signature)) {
-    fail(ex, "ML-DSA reply signature failed");
+    fail(ex, "Reply signature failed");
     return DDS::Security::VALIDATION_FAILED;
   }
   OpenDDS::Security::TokenWriter writer(message, REPLY_CLASS_ID);
@@ -635,7 +652,7 @@ DDS::Security::ValidationResult_t Authentication::process_handshake(
         reply_transcript(hash2, challenge2, dh2, hs.challenge1, hs.dh1, hs.hash1);
     if (OpenDDS::Security::SSL::verify_serialized(reply_data, *certificate,
                                                   reader.get_bin_property_value("signature"))) {
-      fail(ex, "ML-DSA reply signature verification failed");
+      fail(ex, "Reply signature verification failed");
       return DDS::Security::VALIDATION_FAILED;
     }
     DDS::BinaryPropertySeq final_data =
@@ -643,7 +660,7 @@ DDS::Security::ValidationResult_t Authentication::process_handshake(
     DDS::OctetSeq signature;
     if (OpenDDS::Security::SSL::sign_serialized(
             final_data, hs.local->credentials->get_participant_private_key(), signature)) {
-      fail(ex, "ML-DSA final signature failed");
+      fail(ex, "Final signature failed");
       return DDS::Security::VALIDATION_FAILED;
     }
     std::string error;
@@ -683,7 +700,7 @@ DDS::Security::ValidationResult_t Authentication::process_handshake(
     if (!hs.remote_certificate ||
         OpenDDS::Security::SSL::verify_serialized(final_data, *hs.remote_certificate,
                                                   reader.get_bin_property_value("signature"))) {
-      fail(ex, "ML-DSA final signature verification failed");
+      fail(ex, "Final signature verification failed");
       return DDS::Security::VALIDATION_FAILED;
     }
     hs.state = DDS::Security::VALIDATION_OK;

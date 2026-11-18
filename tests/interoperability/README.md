@@ -12,7 +12,7 @@ the subject names, so swapping alice and bob swaps the initiator.
 ## Running
 
 ```sh
-./setup.sh <openssl> <security dir>
+./setup.sh <openssl> <security dir> [EC]
 cmake -S cyclonedds -B cyclonedds/build -DCMAKE_PREFIX_PATH=<CycloneDDS install>
 cmake --build cyclonedds/build
 cmake -S opendds -B opendds/build      # with OpenDDS's setenv.sh sourced
@@ -21,16 +21,18 @@ cmake --build opendds/build
 ```
 
 OpenSSL, CycloneDDS, OpenDDS and both plugins must be on the library path.
-The identities use ML-DSA-65 and the handshake X25519MLKEM768. The
+The identities use ML-DSA-65, or ECDSA P-256 with `EC`; the handshake uses
+X25519MLKEM768 either way. The
 Permissions CA is ECDSA: both access control plugins check signed
 documents with OpenSSL's PKCS#7 functions, which cannot verify ML-DSA.
 
 ## Results
 
-All four cases pass with CycloneDDS 11.1.0 and OpenDDS 3.35.0-dev with
-external security plugin support and the fixes for 1 and 2 below, using
-the OpenDDS plugin as it was before "Announce the OpenDDS adapter's
-algorithms through DDS Security 1.2".
+All four cases pass, with ML-DSA identities and with ECDSA identities. The
+runs used CycloneDDS 11.1.0, OpenDDS 3.35.0-dev with external security
+plugin support and the fixes for 1 and 2 below, and the OpenDDS plugin
+without the commit "Announce the OpenDDS adapter's algorithms through DDS
+Security 1.2", for the reason in the next paragraph.
 
 From that commit on, the OpenDDS plugin announces its algorithms through
 the DDS Security 1.2 negotiation, with bits from the vendor range. 1.2

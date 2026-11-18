@@ -112,15 +112,15 @@ DDS_Security_ValidationResult_t get_trusted_ca_list(const char *trusted_ca_dir, 
                                                     DDS_Security_SecurityException *ex);
 char *string_from_data(const unsigned char *data, uint32_t size);
 
-/* PQ Crypto */
+/* Signatures over a transcript of binary properties: ML-DSA or ECDSA P-256 */
 DDS_Security_ValidationResult_t
-create_pq_signature(EVP_PKEY *pkey, const DDS_Security_BinaryProperty_t **binary_properties,
-                    const uint32_t n_bprops, unsigned char **kem_signature,
-                    size_t *kem_signature_len, DDS_Security_SecurityException *ex);
+create_signature(EVP_PKEY *pkey, const DDS_Security_BinaryProperty_t **binary_properties,
+                 const uint32_t n_bprops, unsigned char **signature, size_t *signature_len,
+                 DDS_Security_SecurityException *ex);
 DDS_Security_ValidationResult_t
-validate_pq_signature(EVP_PKEY *pkey, const DDS_Security_BinaryProperty_t **bprops,
-                      uint32_t n_bprops, const unsigned char *signature, size_t signature_len,
-                      DDS_Security_SecurityException *ex);
+validate_signature(EVP_PKEY *pkey, const DDS_Security_BinaryProperty_t **bprops, uint32_t n_bprops,
+                   const unsigned char *signature, size_t signature_len,
+                   DDS_Security_SecurityException *ex);
 
 DDS_Security_ValidationResult_t
 validate_kem_public_key_in_token(const DDS_Security_BinaryProperty_t *kem_public_prop,

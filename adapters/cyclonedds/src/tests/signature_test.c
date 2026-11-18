@@ -11,18 +11,9 @@
 #include <stdio.h>
 #include <string.h>
 
-static EVP_PKEY *generate_mldsa65(void) {
-  EVP_PKEY_CTX *context = EVP_PKEY_CTX_new_from_name(NULL, "ML-DSA-65", NULL);
-  EVP_PKEY *key = NULL;
-  if (!context || EVP_PKEY_keygen_init(context) != 1 || EVP_PKEY_generate(context, &key) != 1) {
-    EVP_PKEY_free(key);
-    key = NULL;
-  }
-  EVP_PKEY_CTX_free(context);
-  return key;
-}
-
-int main(void) {
+/* A transcript signed with the key verifies, and a changed signature does
+ * not. */
+static bool round_trip(const char *name, EVP_PKEY *key) {
   const unsigned char challenge[] = {0x01, 0x02, 0x03, 0x04};
   const unsigned char ciphertext[] = {0x10, 0x20, 0x30};
   DDS_Security_BinaryProperty_t challenge_property = {
@@ -33,32 +24,35 @@ int main(void) {
       .value = {._length = sizeof(ciphertext), ._buffer = (unsigned char *)ciphertext}};
   const DDS_Security_BinaryProperty_t *transcript[] = {&challenge_property, &ciphertext_property};
   DDS_Security_SecurityException exception = {0};
-  EVP_PKEY *key = generate_mldsa65();
   unsigned char *signature = NULL;
   size_t signature_size = 0;
-  int result = 1;
+  bool ok = false;
 
   if (!key ||
-      create_pq_signature(key, transcript, 2, &signature, &signature_size, &exception) !=
+      create_signature(key, transcript, 2, &signature, &signature_size, &exception) !=
           DDS_SECURITY_VALIDATION_OK ||
-      validate_pq_signature(key, transcript, 2, signature, signature_size, &exception) !=
+      validate_signature(key, transcript, 2, signature, signature_size, &exception) !=
           DDS_SECURITY_VALIDATION_OK) {
-    fprintf(stderr, "ML-DSA transcript round trip failed\n");
+    fprintf(stderr, "%s transcript round trip failed\n", name);
     goto cleanup;
   }
-
-  signature[0] ^= 1;
-  if (validate_pq_signature(key, transcript, 2, signature, signature_size, &exception) ==
+  signature[signature_size / 2] ^= 1;
+  if (validate_signature(key, transcript, 2, signature, signature_size, &exception) ==
       DDS_SECURITY_VALIDATION_OK) {
-    fprintf(stderr, "Tampered ML-DSA signature was accepted\n");
+    fprintf(stderr, "Tampered %s signature was accepted\n", name);
     goto cleanup;
   }
-
-  result = 0;
+  ok = true;
 
 cleanup:
   ddsrt_free(signature);
   EVP_PKEY_free(key);
   DDS_Security_Exception_reset(&exception);
-  return result;
+  return ok;
+}
+
+int main(void) {
+  const bool ok = round_trip("ML-DSA-65", EVP_PKEY_Q_keygen(NULL, NULL, "ML-DSA-65")) &&
+                  round_trip("ECDSA P-256", EVP_PKEY_Q_keygen(NULL, NULL, "EC", "P-256"));
+  return ok ? 0 : 1;
 }

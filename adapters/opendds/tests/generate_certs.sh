@@ -47,3 +47,24 @@ done
 "$openssl" x509 -req -in "$output/participant_ecca.csr" \
   -CA "$output/ec_ca_cert.pem" -CAkey "$output/ec_ca_key.pem" \
   -CAcreateserial -days 2 -out "$output/participant_ecca_cert.pem"
+
+# ECDSA P-256 participants under the EC CA and under the ML-DSA CA, and a
+# P-384 CA and participant, which the plugin refuses.
+participant() {
+  name=$1 ca=$2
+  shift 2
+  "$openssl" genpkey "$@" -out "$output/participant_${name}_key.pem"
+  "$openssl" req -new -key "$output/participant_${name}_key.pem" \
+    -subj "/CN=OpenDDS-PQSec-Participant-$name" -out "$output/participant_$name.csr"
+  "$openssl" x509 -req -in "$output/participant_$name.csr" \
+    -CA "$output/${ca}_cert.pem" -CAkey "$output/${ca}_key.pem" \
+    -CAcreateserial -days 2 -out "$output/participant_${name}_cert.pem"
+}
+participant eca ec_ca -algorithm EC -pkeyopt ec_paramgen_curve:P-256
+participant ecb ec_ca -algorithm EC -pkeyopt ec_paramgen_curve:P-256
+participant ecleaf identity_ca -algorithm EC -pkeyopt ec_paramgen_curve:P-256
+
+"$openssl" genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-384 -out "$output/p384_ca_key.pem"
+"$openssl" req -new -x509 -key "$output/p384_ca_key.pem" \
+  -subj /CN=OpenDDS-PQSec-P384-Test-CA -days 2 -out "$output/p384_ca_cert.pem"
+participant p384 p384_ca -algorithm EC -pkeyopt ec_paramgen_curve:P-384

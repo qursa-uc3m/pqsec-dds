@@ -30,7 +30,8 @@ typedef enum {
 
   /* Digital signature */
   AUTH_ALGO_KIND_ML_DSA_65,
-  AUTH_ALGO_KIND_ML_DSA_87
+  AUTH_ALGO_KIND_ML_DSA_87,
+  AUTH_ALGO_KIND_ECDSA_P256
 } AuthenticationAlgoKind_t;
 
 typedef struct {
@@ -53,8 +54,9 @@ typedef struct {
 // FUNCTION DECLARATIONS
 // =============================================================================
 
-// Algorithm detection (from certificates)
+// Algorithm detection (from certificates and keys)
 AuthenticationAlgoKind_t get_authentication_algo_kind(X509 *cert);
+AuthenticationAlgoKind_t get_key_algo_kind(EVP_PKEY *key);
 
 // Algorithm information functions
 const char *get_authentication_algo(AuthenticationAlgoKind_t kind);

@@ -4,6 +4,7 @@
 
 #include "auth_algs.h"
 
+#include <openssl/core_names.h>
 #include <openssl/evp.h>
 #include <string.h>
 
@@ -20,9 +21,12 @@ static const AlgorithmInfo kem_algorithms[] = {
     {"x25519_mlkem768", AUTH_ALGO_KIND_X25519_ML_KEM_768, "X25519MLKEM768", "X25519MLKEM768"},
     {NULL, AUTH_ALGO_KIND_UNKNOWN, NULL, NULL}};
 
+/* ECDSA over P-256 keeps classical identities usable with ML-KEM. Its wire
+ * name is the 1.1 one, which the built-in plugins send and accept. */
 static const AlgorithmInfo signature_algorithms[] = {
     {"mldsa65", AUTH_ALGO_KIND_ML_DSA_65, "ML-DSA-65", "ML-DSA-65"},
     {"mldsa87", AUTH_ALGO_KIND_ML_DSA_87, "ML-DSA-87", "ML-DSA-87"},
+    {"ecdsa_p256", AUTH_ALGO_KIND_ECDSA_P256, "EC", "ECDSA-SHA256"},
     {NULL, AUTH_ALGO_KIND_UNKNOWN, NULL, NULL}};
 
 static const AlgorithmInfo *find_by_configuration_name(const AlgorithmInfo *table,
@@ -69,22 +73,29 @@ static AuthenticationAlgoKind_t find_wire_kind(const AlgorithmInfo *table,
   return AUTH_ALGO_KIND_UNKNOWN;
 }
 
-AuthenticationAlgoKind_t get_authentication_algo_kind(X509 *certificate) {
-  AuthenticationAlgoKind_t result = AUTH_ALGO_KIND_UNKNOWN;
-  EVP_PKEY *key;
+AuthenticationAlgoKind_t get_key_algo_kind(EVP_PKEY *key) {
+  char group[16];
 
-  if (!certificate || !(key = X509_get_pubkey(certificate))) {
-    return result;
+  if (!key) {
+    return AUTH_ALGO_KIND_UNKNOWN;
   }
-
   if (EVP_PKEY_is_a(key, "ML-DSA-65") || EVP_PKEY_is_a(key, "MLDSA65")) {
-    result = AUTH_ALGO_KIND_ML_DSA_65;
-  } else if (EVP_PKEY_is_a(key, "ML-DSA-87") || EVP_PKEY_is_a(key, "MLDSA87")) {
-    result = AUTH_ALGO_KIND_ML_DSA_87;
+    return AUTH_ALGO_KIND_ML_DSA_65;
   }
+  if (EVP_PKEY_is_a(key, "ML-DSA-87") || EVP_PKEY_is_a(key, "MLDSA87")) {
+    return AUTH_ALGO_KIND_ML_DSA_87;
+  }
+  if (EVP_PKEY_is_a(key, "EC") &&
+      EVP_PKEY_get_utf8_string_param(key, OSSL_PKEY_PARAM_GROUP_NAME, group, sizeof group, NULL) ==
+          1 &&
+      strcmp(group, "prime256v1") == 0) {
+    return AUTH_ALGO_KIND_ECDSA_P256;
+  }
+  return AUTH_ALGO_KIND_UNKNOWN;
+}
 
-  EVP_PKEY_free(key);
-  return result;
+AuthenticationAlgoKind_t get_authentication_algo_kind(X509 *certificate) {
+  return certificate ? get_key_algo_kind(X509_get0_pubkey(certificate)) : AUTH_ALGO_KIND_UNKNOWN;
 }
 
 const char *get_authentication_algo(AuthenticationAlgoKind_t kind) {

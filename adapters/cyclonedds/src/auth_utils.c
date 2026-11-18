@@ -37,6 +37,7 @@
 #include "dds/security/openssl_support.h"
 #include "auth_utils.h"
 #include "debug.h"
+#include <openssl/core_names.h>
 
 #define MAX_TRUSTED_CA 100
 
@@ -139,8 +140,7 @@ static DDS_Security_ValidationResult_t check_key_type_and_size(EVP_PKEY *key, in
                                                                DDS_Security_SecurityException *ex) {
   const char *sub = isPrivate ? "private key" : "certificate";
   assert(key);
-  if (EVP_PKEY_is_a(key, "ML-DSA-65") || EVP_PKEY_is_a(key, "MLDSA65") ||
-      EVP_PKEY_is_a(key, "ML-DSA-87") || EVP_PKEY_is_a(key, "MLDSA87")) {
+  if (get_key_algo_kind(key) != AUTH_ALGO_KIND_UNKNOWN) {
     EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_from_pkey(NULL, key, NULL);
     int valid = 0;
     if (ctx) {
@@ -149,13 +149,14 @@ static DDS_Security_ValidationResult_t check_key_type_and_size(EVP_PKEY *key, in
     }
     if (valid != 1) {
       DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE,
-                                 DDS_SECURITY_VALIDATION_FAILED, "Invalid ML-DSA %s", sub);
+                                 DDS_SECURITY_VALIDATION_FAILED, "Invalid %s key", sub);
       return DDS_SECURITY_VALIDATION_FAILED;
     }
     return DDS_SECURITY_VALIDATION_OK;
   }
   DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE,
-                             DDS_SECURITY_VALIDATION_FAILED, "%s must use an ML-DSA key", sub);
+                             DDS_SECURITY_VALIDATION_FAILED,
+                             "%s must use an ML-DSA or ECDSA P-256 key", sub);
   return DDS_SECURITY_VALIDATION_FAILED;
 }
 
@@ -827,20 +828,23 @@ DDS_Security_ValidationResult_t get_trusted_ca_list(const char *trusted_ca_dir, 
 
 /*-----------------------------------------------------------------------------------------------------------------------------------*/
 
-/* Post-quantum signatures use OpenSSL's native ML-DSA implementation. */
+/* ML-DSA signs the transcript itself (pure ML-DSA); ECDSA signs its
+ * SHA-256 digest and gives a DER signature, as the built-in plugin does. */
 
 static DDS_Security_ValidationResult_t
-create_validate_pq_signature(bool create, EVP_PKEY *key, const unsigned char *data,
-                             size_t data_size, unsigned char **signature, size_t *signature_size,
-                             DDS_Security_SecurityException *ex) {
+create_validate_signature(bool create, EVP_PKEY *key, const unsigned char *data, size_t data_size,
+                          unsigned char **signature, size_t *signature_size,
+                          DDS_Security_SecurityException *ex) {
   EVP_MD_CTX *context = NULL;
   DDS_Security_ValidationResult_t result = DDS_SECURITY_VALIDATION_FAILED;
+  const char *digest =
+      get_key_algo_kind(key) == AUTH_ALGO_KIND_ECDSA_P256 ? OSSL_DIGEST_NAME_SHA2_256 : NULL;
 
   if (!key || !data || !signature || !signature_size ||
       (!create && (!*signature || *signature_size == 0))) {
     DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE,
                                DDS_SECURITY_VALIDATION_FAILED,
-                               "Invalid ML-DSA operation parameters");
+                               "Invalid signature operation parameters");
     return DDS_SECURITY_VALIDATION_FAILED;
   }
 
@@ -850,15 +854,14 @@ create_validate_pq_signature(bool create, EVP_PKEY *key, const unsigned char *da
   }
 
   if (create) {
-    if (EVP_DigestSignInit_ex(context, NULL, NULL, NULL, NULL, key, NULL) != 1 ||
+    if (EVP_DigestSignInit_ex(context, NULL, digest, NULL, NULL, key, NULL) != 1 ||
         EVP_DigestSign(context, NULL, signature_size, data, data_size) != 1) {
       goto openssl_error;
     }
     *signature = ddsrt_malloc(*signature_size);
     if (!*signature) {
       DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE,
-                                 DDS_SECURITY_VALIDATION_FAILED,
-                                 "Failed to allocate ML-DSA signature");
+                                 DDS_SECURITY_VALIDATION_FAILED, "Failed to allocate signature");
       goto cleanup;
     }
     if (EVP_DigestSign(context, *signature, signature_size, data, data_size) != 1) {
@@ -867,12 +870,11 @@ create_validate_pq_signature(bool create, EVP_PKEY *key, const unsigned char *da
       goto openssl_error;
     }
   } else {
-    const int verified = EVP_DigestVerifyInit_ex(context, NULL, NULL, NULL, NULL, key, NULL);
+    const int verified = EVP_DigestVerifyInit_ex(context, NULL, digest, NULL, NULL, key, NULL);
     if (verified != 1 ||
         EVP_DigestVerify(context, *signature, *signature_size, data, data_size) != 1) {
       DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE,
-                                 DDS_SECURITY_VALIDATION_FAILED,
-                                 "ML-DSA signature verification failed");
+                                 DDS_SECURITY_VALIDATION_FAILED, "Signature verification failed");
       goto cleanup;
     }
   }
@@ -883,17 +885,18 @@ create_validate_pq_signature(bool create, EVP_PKEY *key, const unsigned char *da
 openssl_error:
   DDS_Security_Exception_set_with_openssl_error(
       ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE, DDS_SECURITY_VALIDATION_FAILED,
-      "ML-DSA operation failed: ");
+      "Signature operation failed: ");
 
 cleanup:
   EVP_MD_CTX_free(context);
   return result;
 }
 
-static DDS_Security_ValidationResult_t create_validate_pq_signature_properties(
-    bool create, EVP_PKEY *key, const DDS_Security_BinaryProperty_t **properties,
-    uint32_t property_count, unsigned char **signature, size_t *signature_size,
-    DDS_Security_SecurityException *ex) {
+static DDS_Security_ValidationResult_t
+create_validate_signature_properties(bool create, EVP_PKEY *key,
+                                     const DDS_Security_BinaryProperty_t **properties,
+                                     uint32_t property_count, unsigned char **signature,
+                                     size_t *signature_size, DDS_Security_SecurityException *ex) {
   DDS_Security_Serializer serializer;
   unsigned char *buffer = NULL;
   size_t size = 0;
@@ -901,7 +904,7 @@ static DDS_Security_ValidationResult_t create_validate_pq_signature_properties(
 
   if (!properties || property_count == 0) {
     DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE,
-                               DDS_SECURITY_VALIDATION_FAILED, "ML-DSA transcript is empty");
+                               DDS_SECURITY_VALIDATION_FAILED, "Signed transcript is empty");
     return DDS_SECURITY_VALIDATION_FAILED;
   }
 
@@ -915,27 +918,28 @@ static DDS_Security_ValidationResult_t create_validate_pq_signature_properties(
 
   DDS_Security_Serialize_BinaryPropertyArray(serializer, properties, property_count);
   DDS_Security_Serializer_buffer(serializer, &buffer, &size);
-  result = create_validate_pq_signature(create, key, buffer, size, signature, signature_size, ex);
+  result = create_validate_signature(create, key, buffer, size, signature, signature_size, ex);
   ddsrt_free(buffer);
   DDS_Security_Serializer_free(serializer);
   return result;
 }
 
-DDS_Security_ValidationResult_t
-create_pq_signature(EVP_PKEY *key, const DDS_Security_BinaryProperty_t **properties,
-                    uint32_t property_count, unsigned char **signature, size_t *signature_size,
-                    DDS_Security_SecurityException *ex) {
-  return create_validate_pq_signature_properties(true, key, properties, property_count, signature,
-                                                 signature_size, ex);
+DDS_Security_ValidationResult_t create_signature(EVP_PKEY *key,
+                                                 const DDS_Security_BinaryProperty_t **properties,
+                                                 uint32_t property_count, unsigned char **signature,
+                                                 size_t *signature_size,
+                                                 DDS_Security_SecurityException *ex) {
+  return create_validate_signature_properties(true, key, properties, property_count, signature,
+                                              signature_size, ex);
 }
 
 DDS_Security_ValidationResult_t
-validate_pq_signature(EVP_PKEY *key, const DDS_Security_BinaryProperty_t **properties,
-                      uint32_t property_count, const unsigned char *signature,
-                      size_t signature_size, DDS_Security_SecurityException *ex) {
+validate_signature(EVP_PKEY *key, const DDS_Security_BinaryProperty_t **properties,
+                   uint32_t property_count, const unsigned char *signature, size_t signature_size,
+                   DDS_Security_SecurityException *ex) {
   unsigned char *mutable_signature = (unsigned char *)signature;
-  return create_validate_pq_signature_properties(false, key, properties, property_count,
-                                                 &mutable_signature, &signature_size, ex);
+  return create_validate_signature_properties(false, key, properties, property_count,
+                                              &mutable_signature, &signature_size, ex);
 }
 
 static DDS_Security_ValidationResult_t

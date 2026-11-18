@@ -887,14 +887,14 @@ DDS_Security_boolean get_identity_token(dds_security_authentication *instance,
 
   identity_token->properties._buffer[1].name = ddsrt_strdup(DDS_AUTHTOKEN_PROP_CERT_ALGO);
   identity_token->properties._buffer[1].value =
-      ddsrt_strdup(get_authentication_algo(get_authentication_algo_kind(identity->identityCert)));
+      ddsrt_strdup(get_dsign_algo(get_authentication_algo_kind(identity->identityCert)));
 
   identity_token->properties._buffer[2].name = ddsrt_strdup(DDS_AUTHTOKEN_PROP_CA_SN);
   identity_token->properties._buffer[2].value = snCA;
 
   identity_token->properties._buffer[3].name = ddsrt_strdup(DDS_AUTHTOKEN_PROP_CA_ALGO);
   identity_token->properties._buffer[3].value =
-      ddsrt_strdup(get_authentication_algo(get_authentication_algo_kind(identity->identityCA)));
+      ddsrt_strdup(get_dsign_algo(get_authentication_algo_kind(identity->identityCA)));
 
   ddsrt_mutex_unlock(&impl->lock);
   DBG_TRACE("Successfully populated identity_token\n");
@@ -2003,7 +2003,7 @@ validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
   if (token_type == HS_TOKEN_REPLY || token_type == HS_TOKEN_FINAL) {
     /* Only the Reply reaches this point; the Final is checked by validate_final_token(). */
     assert(token_type == HS_TOKEN_REPLY);
-    DBG_CRYPTO("Validating PQ signature for REPLY token\n");
+    DBG_CRYPTO("Validating signature for REPLY token\n");
 
     EVP_PKEY *public_key = X509_get_pubkey(relation->remoteIdentity->identityCert);
     if (!public_key) {
@@ -2019,14 +2019,14 @@ validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
                           relation->lchallenge->value, challenge2->value._buffer, &kem_public,
                           &kem_ciphertext->value);
     DDS_Security_ValidationResult_t result =
-        validate_pq_signature(public_key, transcript.items, PQSEC_TRANSCRIPT_SIZE,
-                              signature->value._buffer, signature->value._length, ex);
+        validate_signature(public_key, transcript.items, PQSEC_TRANSCRIPT_SIZE,
+                           signature->value._buffer, signature->value._length, ex);
     EVP_PKEY_free(public_key);
     if (result != DDS_SECURITY_VALIDATION_OK) {
-      DBG_ERR("PQ signature validation failed for REPLY token\n");
-      return set_exception(ex, "PQ signature validation failed");
+      DBG_ERR("Signature validation failed for REPLY token\n");
+      return set_exception(ex, "Signature validation failed");
     }
-    DBG_TRACE("PQ signature validated for REPLY token\n");
+    DBG_TRACE("Signature validated for REPLY token\n");
   }
 
   DBG_TRACE("validate_handshake_token_impl succeeded\n");
@@ -2075,8 +2075,8 @@ validate_final_token(const DDS_Security_HandshakeMessageToken *token,
   }
 
   final_transcript(handshake, &transcript);
-  result = validate_pq_signature(public_key, transcript.items, PQSEC_TRANSCRIPT_SIZE,
-                                 signature->value._buffer, signature->value._length, ex);
+  result = validate_signature(public_key, transcript.items, PQSEC_TRANSCRIPT_SIZE,
+                              signature->value._buffer, signature->value._length, ex);
   EVP_PKEY_free(public_key);
   return result;
 }
@@ -2326,7 +2326,7 @@ begin_handshake_reply(dds_security_authentication *instance,
     DBG_TRACE("Set HASH_C1 property (optional)\n");
   }
 
-  /* Calculate the PQ signature using ML-DSA */
+  /* Sign the Reply transcript */
   {
     unsigned char *kem_signature = NULL;
     size_t kem_signature_len = 0;
@@ -2339,13 +2339,13 @@ begin_handshake_reply(dds_security_authentication *instance,
     pqsec_transcript_init(&transcript, false, handshake->hash_c1, handshake->hash_c2,
                           relation->rchallenge->value, relation->lchallenge->value, &kem_public,
                           &kem_ciphertext);
-    if (create_pq_signature(localIdent->privateKey, transcript.items, PQSEC_TRANSCRIPT_SIZE,
-                            &kem_signature, &kem_signature_len, ex) != DDS_SECURITY_VALIDATION_OK) {
-      DBG_ERR("ML-DSA signature creation failed\n");
+    if (create_signature(localIdent->privateKey, transcript.items, PQSEC_TRANSCRIPT_SIZE,
+                         &kem_signature, &kem_signature_len, ex) != DDS_SECURITY_VALIDATION_OK) {
+      DBG_ERR("Signature creation failed\n");
       goto err_signature;
     }
 
-    DBG_CRYPTO("Setting ML-DSA signature (len=%zu)\n", kem_signature_len);
+    DBG_CRYPTO("Setting signature (len=%zu)\n", kem_signature_len);
     DDS_Security_BinaryProperty_set_by_ref(&tokens[tokidx++], DDS_AUTHTOKEN_PROP_SIGNATURE,
                                            kem_signature, kem_signature_len);
   }
@@ -2525,14 +2525,14 @@ process_handshake(dds_security_authentication *instance,
         pqsec_transcript transcript;
 
         final_transcript(handshake, &transcript);
-        if (create_pq_signature(relation->localIdentity->privateKey, transcript.items,
-                                PQSEC_TRANSCRIPT_SIZE, &kem_signature, &kem_signature_len,
-                                ex) != DDS_SECURITY_VALIDATION_OK) {
-          DBG_ERR("ML-DSA signature creation failed\n");
+        if (create_signature(relation->localIdentity->privateKey, transcript.items,
+                             PQSEC_TRANSCRIPT_SIZE, &kem_signature, &kem_signature_len,
+                             ex) != DDS_SECURITY_VALIDATION_OK) {
+          DBG_ERR("Signature creation failed\n");
           free_binary_properties(tokens, idx);
           goto err_signature;
         }
-        DBG_SIG("ML-DSA signature created (%zu bytes)\n", kem_signature_len);
+        DBG_SIG("Signature created (%zu bytes)\n", kem_signature_len);
         DDS_Security_BinaryProperty_set_by_ref(&tokens[idx++], DDS_AUTHTOKEN_PROP_SIGNATURE,
                                                kem_signature, kem_signature_len);
       }
