@@ -15,6 +15,7 @@
 #include <dds/security/dds_security_api_types.h>
 #include <openssl/x509.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 // =============================================================================
 // ALGORITHM TYPES
@@ -67,6 +68,12 @@ const char *get_kagree_algo(AuthenticationAlgoKind_t kind);
 AuthenticationAlgoKind_t get_dsign_algo_from_octseq(const DDS_Security_OctetSeq *name);
 AuthenticationAlgoKind_t get_kagree_algo_from_octseq(const DDS_Security_OctetSeq *name);
 AuthenticationAlgoKind_t get_kagree_algo_from_string(const char *name);
+
+// Sets of KEMs, one bit per AuthenticationAlgoKind_t
+#define KEM_BIT(kind) (1u << (unsigned)(kind))
+uint32_t all_kems(void);
+// Comma-separated wire names; 0 if the list is empty or names an unknown KEM.
+uint32_t kems_from_string(const char *list);
 
 // Compile-time selected algorithm functions
 AuthenticationAlgoKind_t get_default_kem_algorithm_kind(void);

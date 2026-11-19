@@ -158,8 +158,10 @@ static void serialize_participant_data(participant *p) {
   DDS_Security_ParticipantBuiltinTopicData_free(data);
 }
 
-/* kem is the value of dds.sec.auth.key_establishment_algorithm, or NULL. */
-static bool start(participant *p, unsigned char id, const identity *identity, const char *kem) {
+/* kem is the value of dds.sec.auth.key_establishment_algorithm, and accepted
+ * that of pqsec.auth.accepted_key_establishment_algorithms; NULL leaves them out. */
+static bool start_with(participant *p, unsigned char id, const identity *identity, const char *kem,
+                       const char *accepted) {
   DDS_Security_Qos qos;
   DDS_Security_GUID_t candidate;
   void *context = NULL;
@@ -172,18 +174,24 @@ static bool start(participant *p, unsigned char id, const identity *identity, co
   candidate.entityId.entityKind = 0xc1;
 
   memset(&qos, 0, sizeof qos);
-  qos.property.value._length = qos.property.value._maximum = kem ? 4 : 3;
-  qos.property.value._buffer = DDS_Security_PropertySeq_allocbuf(4);
+  qos.property.value._buffer = DDS_Security_PropertySeq_allocbuf(5);
   qos.property.value._buffer[0].name = ddsrt_strdup(DDS_SEC_PROP_AUTH_IDENTITY_CA);
   qos.property.value._buffer[0].value = ddsrt_strdup(identity->ca);
   qos.property.value._buffer[1].name = ddsrt_strdup(DDS_SEC_PROP_AUTH_IDENTITY_CERT);
   qos.property.value._buffer[1].value = ddsrt_strdup(identity->certificate);
   qos.property.value._buffer[2].name = ddsrt_strdup(DDS_SEC_PROP_AUTH_PRIV_KEY);
   qos.property.value._buffer[2].value = ddsrt_strdup(identity->private_key);
+  uint32_t n = 3;
   if (kem) {
-    qos.property.value._buffer[3].name = ddsrt_strdup("dds.sec.auth.key_establishment_algorithm");
-    qos.property.value._buffer[3].value = ddsrt_strdup(kem);
+    qos.property.value._buffer[n].name = ddsrt_strdup("dds.sec.auth.key_establishment_algorithm");
+    qos.property.value._buffer[n++].value = ddsrt_strdup(kem);
   }
+  if (accepted) {
+    qos.property.value._buffer[n].name =
+        ddsrt_strdup("pqsec.auth.accepted_key_establishment_algorithms");
+    qos.property.value._buffer[n++].value = ddsrt_strdup(accepted);
+  }
+  qos.property.value._length = qos.property.value._maximum = n;
 
   const bool ok =
       init_authentication(NULL, &context, &gv) == 0 &&
@@ -195,6 +203,10 @@ static bool start(participant *p, unsigned char id, const identity *identity, co
     serialize_participant_data(p);
   }
   return ok;
+}
+
+static bool start(participant *p, unsigned char id, const identity *identity, const char *kem) {
+  return start_with(p, id, identity, kem, NULL);
 }
 
 static void stop(participant *p) {
@@ -573,6 +585,33 @@ static bool retransmission_test(void) {
   return ok;
 }
 
+/* A replier refuses a KEM missing from its accepted list, and an unknown name in
+ * the list is a configuration error. */
+static bool accepted_kems_test(void) {
+  exchange e;
+  memset(&e, 0, sizeof e);
+  bool ok =
+      start_with(&e.a, 1, &mldsa, "ML-KEM-768", "X25519MLKEM768") &&
+      start_with(&e.b, 2, &mldsa, "ML-KEM-768", "X25519MLKEM768") && introduce(&e) && request(&e) &&
+      check(begin_handshake_reply(e.replier->auth, &e.replier->handshake, &e.reply, &e.request,
+                                  e.replier->remote, e.replier->local, &e.replier->participant_data,
+                                  &ex) == DDS_SECURITY_VALIDATION_FAILED,
+            "replier accepted a KEM outside its list");
+  finish(&e);
+  memset(&e, 0, sizeof e);
+  ok = ok && start_with(&e.a, 1, &mldsa, "ML-KEM-768", "ML-KEM-768, X25519MLKEM768") &&
+       start_with(&e.b, 2, &mldsa, "ML-KEM-768", "ML-KEM-768, X25519MLKEM768") && introduce(&e) &&
+       request(&e) && reply(&e) && complete(&e);
+  finish(&e);
+  participant p;
+  memset(&p, 0, sizeof p);
+  if (ok) {
+    ok = check(!start_with(&p, 1, &mldsa, NULL, "ML-KEM-512"), "unknown KEM name accepted");
+    stop(&p);
+  }
+  return ok;
+}
+
 /* ECDSA P-256 identities, alone or mixed with ML-DSA, complete a handshake
  * whose key establishment is still a KEM. */
 static bool identity_test(const identity *a, const identity *b, const char *description) {
@@ -652,10 +691,10 @@ int main(void) {
                   happy_path_test("X25519MLKEM768") && happy_path_test("AUTO") &&
                   happy_path_test(NULL) && substituted_public_key_test() &&
                   substituted_ciphertext_test() && credential_binding_test() &&
-                  tampered_final_test() && retransmission_test() && initiator_chooses_test() &&
-                  classical_request_test() && reply_algorithm_test() && reply_echo_test() &&
-                  final_mismatch_test() && ecdsa_identity_tests() && rejected_identity_test() &&
-                  different_ca_test();
+                  tampered_final_test() && retransmission_test() && accepted_kems_test() &&
+                  initiator_chooses_test() && classical_request_test() && reply_algorithm_test() &&
+                  reply_echo_test() && final_mismatch_test() && ecdsa_identity_tests() &&
+                  rejected_identity_test() && different_ca_test();
 
   free_identity(&mldsa);
   free_identity(&other_ca);

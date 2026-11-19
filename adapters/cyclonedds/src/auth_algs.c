@@ -133,6 +133,41 @@ AuthenticationAlgoKind_t get_kagree_algo_from_string(const char *name) {
   return AUTH_ALGO_KIND_UNKNOWN;
 }
 
+uint32_t all_kems(void) {
+  uint32_t set = 0;
+  for (size_t i = 0; kem_algorithms[i].configuration_name; ++i) {
+    set |= KEM_BIT(kem_algorithms[i].kind);
+  }
+  return set;
+}
+
+uint32_t kems_from_string(const char *list) {
+  uint32_t set = 0;
+  char name[32];
+  const char *p = list;
+  while (p && *p) {
+    while (*p == ' ' || *p == ',') {
+      ++p;
+    }
+    const size_t length = strcspn(p, " ,");
+    if (length == 0) {
+      break;
+    }
+    if (length >= sizeof name) {
+      return 0;
+    }
+    memcpy(name, p, length);
+    name[length] = '\0';
+    const AuthenticationAlgoKind_t kind = get_kagree_algo_from_string(name);
+    if (kind == AUTH_ALGO_KIND_UNKNOWN) {
+      return 0;
+    }
+    set |= KEM_BIT(kind);
+    p += length;
+  }
+  return set;
+}
+
 AuthenticationAlgoKind_t get_default_kem_algorithm_kind(void) {
   const AlgorithmInfo *info = find_by_configuration_name(kem_algorithms, SELECTED_KEM_ALGORITHM);
   return info ? info->kind : AUTH_ALGO_KIND_UNKNOWN;

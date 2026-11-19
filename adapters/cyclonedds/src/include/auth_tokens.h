@@ -21,6 +21,8 @@
 
 // DDS Security 1.2, 10.3.1.4
 #define PQSEC_PROP_KEY_ESTABLISHMENT "dds.sec.auth.key_establishment_algorithm"
+/* The KEMs accepted as replier, as a comma-separated list of names. */
+#define PQSEC_PROP_ACCEPTED_KEMS "pqsec.auth.accepted_key_establishment_algorithms"
 
 // IdentityStatusToken
 // #define DDS_AUTHTOKEN_CLASS_ID "DDS:Auth:PKI-DH:1.0"

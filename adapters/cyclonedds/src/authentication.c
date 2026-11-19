@@ -106,6 +106,7 @@ typedef struct LocalIdentityInfo {
   DDS_Security_OctetSeq pdata;
   AuthenticationAlgoKind_t dsignAlgoKind;
   AuthenticationAlgoKind_t kagreeAlgoKind;
+  uint32_t acceptedKems;
   char *permissionsDocument;
   dds_security_time_event_handle_t timer;
 } LocalIdentityInfo;
@@ -258,7 +259,8 @@ static void local_identity_info_free(SecurityObject *obj) {
 
 static LocalIdentityInfo *
 local_identity_info_new(DDS_Security_DomainId domainId, AuthenticationAlgoKind_t kagreeAlgoKind,
-                        X509 *identityCert, X509 *identityCa, EVP_PKEY *privateKey, X509_CRL *crl,
+                        uint32_t acceptedKems, X509 *identityCert, X509 *identityCa,
+                        EVP_PKEY *privateKey, X509_CRL *crl,
                         const DDS_Security_GUID_t *candidate_participant_guid,
                         const DDS_Security_GUID_t *adjusted_participant_guid) {
   DBG_TRACE("Entering local_identity_info_new\n");
@@ -295,6 +297,7 @@ local_identity_info_new(DDS_Security_DomainId domainId, AuthenticationAlgoKind_t
   DBG_TRACE("Determined signature algorithm kind: %d\n", identity->dsignAlgoKind);
 
   identity->kagreeAlgoKind = kagreeAlgoKind;
+  identity->acceptedKems = acceptedKems;
   DBG_INFO("PQ_CRYPTO: Using %s for signatures, %s for key exchange\n",
            get_authentication_algo(identity->dsignAlgoKind),
            get_authentication_algo(identity->kagreeAlgoKind));
@@ -611,6 +614,7 @@ DDS_Security_ValidationResult_t validate_local_identity(
   X509_CRL *crl = NULL;
   EVP_PKEY *privateKey;
   AuthenticationAlgoKind_t kagreeAlgoKind;
+  uint32_t acceptedKems;
   dds_time_t certExpiry = DDS_TIME_INVALID;
 
   /* PQ crypto specific variables */
@@ -764,6 +768,21 @@ DDS_Security_ValidationResult_t validate_local_identity(
     }
     ddsrt_free(name);
   }
+  /* The KEMs accepted as replier. No property means all of them. */
+  {
+    char *list =
+        DDS_Security_Property_get_value(&participant_qos->property.value, PQSEC_PROP_ACCEPTED_KEMS);
+    acceptedKems = list ? kems_from_string(list) : all_kems();
+    if (!acceptedKems) {
+      DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE,
+                                 DDS_SECURITY_VALIDATION_FAILED,
+                                 "validate_local_identity: unsupported %s '%s'",
+                                 PQSEC_PROP_ACCEPTED_KEMS, list);
+      ddsrt_free(list);
+      goto err_adj_guid_failed;
+    }
+    ddsrt_free(list);
+  }
 
   if (get_adjusted_participant_guid(identityCert, candidate_participant_guid,
                                     adjusted_participant_guid, ex) != DDS_SECURITY_VALIDATION_OK) {
@@ -781,9 +800,9 @@ DDS_Security_ValidationResult_t validate_local_identity(
   ddsrt_free(trusted_ca_dir);
 
   /* Create identity with traditional certificates only */
-  identity =
-      local_identity_info_new(domain_id, kagreeAlgoKind, identityCert, identityCA, privateKey, crl,
-                              candidate_participant_guid, adjusted_participant_guid);
+  identity = local_identity_info_new(domain_id, kagreeAlgoKind, acceptedKems, identityCert,
+                                     identityCA, privateKey, crl, candidate_participant_guid,
+                                     adjusted_participant_guid);
 
   *local_identity_handle = IDENTITY_HANDLE(identity);
   DBG_TRACE("Assigned local_identity_handle = 0x%lx\n", (unsigned long)*local_identity_handle);
@@ -1826,6 +1845,15 @@ validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
                            DDS_AUTHTOKEN_PROP_C_KAGREE_ALGO);
     }
     DBG_TRACE("Determined kagreeAlgoKind = %d\n", kagreeAlgoKind);
+
+    if (token_type == HS_TOKEN_REQ &&
+        !(relation->localIdentity->acceptedKems & KEM_BIT(kagreeAlgoKind))) {
+      DBG_ERR("C_KAGREE_ALGO names a KEM this participant does not accept\n");
+      return set_exception(ex,
+                           "process_handshake: HandshakeMessageToken property %s names a KEM "
+                           "this participant does not accept",
+                           DDS_AUTHTOKEN_PROP_C_KAGREE_ALGO);
+    }
 
     /* The initiator chooses the key establishment algorithm (10.3.1.4); the
      * Reply must name the one this participant requested. */

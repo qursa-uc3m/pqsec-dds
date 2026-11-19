@@ -42,8 +42,10 @@ property `dds.sec.auth.key_establishment_algorithm` (DDS Security 1.2,
 Tokens, class ids, properties and signed transcripts are those of PKI-DH.
 `dh1` carries the initiator's encapsulation key and `dh2` the replier's
 ciphertext, and `SharedSecret` is SHA-256 of the KEM secret. The initiator
-chooses the KEM; the replier accepts any of the three and answers with the same
-one. A classical algorithm in `c.kagree_algo` is refused. Echoed `dh1`, `dh2`,
+chooses the KEM; the replier answers with the same one. By default the replier
+accepts all three. The participant QoS property
+`pqsec.auth.accepted_key_establishment_algorithms`, a comma-separated list such
+as `X25519MLKEM768, ML-KEM-1024`, restricts the ones it accepts. A classical algorithm in `c.kagree_algo` is refused. Echoed `dh1`, `dh2`,
 `hash_c1` and `hash_c2` are optional, and must equal the local values when
 present.
 
