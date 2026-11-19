@@ -680,20 +680,11 @@ DDS_Security_ValidationResult_t validate_local_identity(
                                  "Cannot specify both CRL and trusted_ca_list");
       goto err_identity_ca_not_trusted;
     }
-    const EVP_MD *digest = EVP_get_digestbyname("sha1");
-    uint32_t size;
-    unsigned char hash_buffer[20], hash_buffer_trusted[20];
     DDS_Security_ValidationResult_t result = DDS_SECURITY_VALIDATION_FAILED;
-
-    int digest_result = X509_digest(identityCA, digest, hash_buffer, &size);
-    if (digest_result) {
-      for (unsigned i = 0; i < implementation->trustedCAList.length; ++i) {
-        digest_result = X509_digest(implementation->trustedCAList.buffer[i], digest,
-                                    hash_buffer_trusted, &size);
-        if (digest_result && memcmp(hash_buffer_trusted, hash_buffer, 20) == 0) {
-          result = DDS_SECURITY_VALIDATION_OK;
-          break;
-        }
+    for (unsigned i = 0; i < implementation->trustedCAList.length; ++i) {
+      if (X509_cmp(identityCA, implementation->trustedCAList.buffer[i]) == 0) {
+        result = DDS_SECURITY_VALIDATION_OK;
+        break;
       }
     }
     if (result != DDS_SECURITY_VALIDATION_OK) {
