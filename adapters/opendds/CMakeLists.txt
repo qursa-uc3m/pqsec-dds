@@ -8,15 +8,12 @@ set(OPENDDS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../OpenDDS" CACHE PATH "OpenDDS
 set(OPENSSL_ROOT_DIR "/opt/openssl3_local/.local" CACHE PATH "OpenSSL 3.6+ installation")
 
 set(OpenDDS_DIR "${OPENDDS_ROOT}/cmake")
-set(OPENSSL_USE_STATIC_LIBS TRUE)
+# The plugin hands certificates and keys to OpenDDS's security library and back,
+# so both must use the same shared libcrypto, the one OpenDDS was built with.
 # CMake 3.22's FindOpenSSL can otherwise combine headers from a custom prefix
 # with a system libcrypto when the custom installation uses lib64.
 if(EXISTS "${OPENSSL_ROOT_DIR}/lib64")
   list(PREPEND CMAKE_LIBRARY_PATH "${OPENSSL_ROOT_DIR}/lib64")
-  if(OPENSSL_USE_STATIC_LIBS AND EXISTS "${OPENSSL_ROOT_DIR}/lib64/libcrypto.a")
-    set(OPENSSL_CRYPTO_LIBRARY "${OPENSSL_ROOT_DIR}/lib64/libcrypto.a"
-      CACHE FILEPATH "OpenSSL crypto library" FORCE)
-  endif()
 endif()
 find_package(OpenSSL 3.6 REQUIRED COMPONENTS Crypto)
 find_package(OpenDDS REQUIRED COMPONENTS NO_DEFAULTS

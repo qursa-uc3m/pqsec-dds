@@ -10,6 +10,8 @@
 #include <dds/DCPS/security/framework/SecurityPluginInst.h>
 #include <dds/DCPS/security/framework/SecurityRegistry.h>
 
+#include <openssl/crypto.h>
+
 namespace {
 
 class PQSecSecurityPluginInst : public OpenDDS::Security::SecurityPluginInst {
@@ -51,6 +53,12 @@ private:
 } // namespace
 
 int PQSecPluginLoader::init(int, ACE_TCHAR *[]) {
+  // The shared libcrypto found at run time may be older than the one built against.
+  if (OpenSSL_version_num() < 0x30600000L) {
+    ACE_ERROR_RETURN((LM_ERROR, "(%P|%t) ERROR: PQSec needs OpenSSL 3.6 or later, found %C\n",
+                      OpenSSL_version(OPENSSL_VERSION)),
+                     -1);
+  }
   const OpenDDS::DCPS::String plugin_name("PQSec");
   OpenDDS::Security::SecurityPluginInst_rch plugin =
       TheSecurityRegistry->get_plugin_inst(plugin_name, false);

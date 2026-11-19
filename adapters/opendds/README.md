@@ -74,6 +74,10 @@ installation contains only `lib64`, provide a compatibility prefix whose `lib`
 symlink points at that directory; otherwise the linker can silently select the
 system OpenSSL instead.
 
+The plugin links the shared libcrypto, the same one OpenDDS uses, because
+certificates and keys pass between the two. When it is loaded it refuses a
+libcrypto older than 3.6.
+
 ```sh
 cmake -S adapters/opendds -B adapters/opendds/build \
   -DOPENDDS_ROOT="$PWD/OpenDDS" \
@@ -146,7 +150,6 @@ remain in the domain would bypass the post-quantum authentication guarantee.
 
 - There is no downgrade to a classical algorithm.  Mixed classical/PQ peers do
   not authenticate.
-- The CycloneDDS adapter has not moved to PKI-DH yet.
 - The implementation uses pure ML-DSA, not the pre-hash variants, and buffers the
   serialized transcript because OpenSSL exposes pure ML-DSA as a one-shot
   signature operation.
