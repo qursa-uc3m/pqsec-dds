@@ -3,7 +3,9 @@
 ## Status
 
 A proposed change to DDS Security 1.2 (formal/25-03-06), written for
-DDSSEC13-91. Both adapters in this repository implement it. Nothing in it
+DDSSEC13-91. Both adapters in this repository implement it, except the
+algorithm check of 10.3, which only matters for a plugin that chooses its
+algorithm by the peer; these always use their configured one. Nothing in it
 changes the PKI-DH tokens, class ids, messages, signed transcripts, or the
 Authentication SPI: the new algorithms are rows of Tables 25 and 26.
 
@@ -69,12 +71,14 @@ Table 26, including the new ones.
 For a KEM, the following rules apply. They say for KEMs what 1.2 leaves
 implicit for Diffie-Hellman.
 
-1. **Roles.** The initiator generates a key pair and sends the encapsulation
-   key as `dh1`. The replier checks `dh1` (the FIPS 203 encapsulation key
-   check; for `X25519MLKEM768` also the length of the X25519 part), then
-   encapsulates to it and sends the ciphertext as `dh2`. The initiator
-   decapsulates `dh2` with its own key. For `X25519MLKEM768` an all-zero
-   X25519 shared secret is an error.
+1. **Roles and checks.** The initiator generates a key pair and sends the
+   encapsulation key as `dh1`. The replier checks `dh1` (its exact length and
+   the FIPS 203 encapsulation key check), then encapsulates to it and sends
+   the ciphertext as `dh2`. The initiator checks that `dh2` has exactly the
+   ciphertext length of the algorithm, as FIPS 203 requires before
+   decapsulation, and decapsulates it with its own key. For
+   `X25519MLKEM768` the lengths are checked for each part, and an all-zero
+   X25519 shared secret is an error on both sides.
 2. **Local state.** Each side signs and verifies with its own copies of
    `dh1`, `dh2`, `hash_c1` and `hash_c2`: the ones it generated, or the ones it
    received in the message that defines them. An echoed copy in a later
@@ -84,11 +88,17 @@ implicit for Diffie-Hellman.
    `dh2`. With `X25519MLKEM768` they would add 3.7 KB to a handshake.
 3. **Ciphertext lifetime.** A ciphertext belongs to one Request. A Request
    with the same `hash_c1`, `challenge1` and `dh1` as the pending attempt is a
-   retransmission and gets the same Reply. Any other Request gets a new
-   encapsulation.
-4. **Decapsulation is silent.** ML-KEM decapsulation of a wrong ciphertext
-   returns a different key, not an error. Success of decapsulation proves
-   nothing; only the two signatures authenticate the exchange.
+   retransmission and gets an equivalent Reply, one with the same `dh2` and
+   `challenge2`; only the signature may be computed again. The middleware may
+   do this by resending the Reply it stored, as OpenDDS does, or the plugin
+   by reusing the ciphertext, as the CycloneDDS adapter does. Any other
+   Request that passes the checks of 10.3 gets a new encapsulation.
+4. **Decapsulation is silent.** ML-KEM decapsulation of a ciphertext of the
+   right length but not made for the key returns a different key, not an
+   error. Success of decapsulation proves nothing; only the two signatures
+   authenticate the exchange. The hybrid needs nothing more: X25519 also
+   gives a result for any 32-byte input, so the checks of rule 1 are all
+   there is to verify.
 5. **Erasure.** The decapsulation key is erased once it has been used, and the
    KEM secret once `SharedSecret` has been computed.
 
@@ -104,27 +114,51 @@ The plugin keeps its name, `DDS:Auth:PKI-DH`, and the properties keep theirs,
 `dh1` and `dh2`. The names are inside the class ids and inside the signed
 transcripts, so renaming them would make every new implementation unable to
 authenticate with every existing one, and gain nothing. What changes is the
-text that describes them:
+text that describes them. Each item below replaces a sentence of 1.2; adding
+KEM sentences next to the old ones would leave two contradictory
+requirements.
 
 - Table 56, `dh1`: "The Key Agreement Public Key chosen by the Participant"
   becomes "The initiator's key establishment value: its Key Agreement Public
   Key, or for a KEM its encapsulation key".
+- After Table 56: "The encoding of the Key Agreement Public Key [...] for
+  the property dh1" becomes "The encoding of the key establishment value in
+  the property dh1 depends on the algorithm and is described in 8.3".
 - Table 57, `dh2`: "The Key Agreement Public Key chosen by the Participant"
   becomes "The replier's key establishment value: its Key Agreement Public
-  Key, or for a KEM the ciphertext encapsulated to `dh1`".
-- After Table 56: "The encoding of the Key Agreement Public Key [...] applies
-  to the setting of the binary property value for the property dh1" becomes
-  "The encoding of the key establishment values depends on the algorithm and
-  is described in 8.3. This applies to the properties dh1 and dh2".
-- Table 59, `process_handshake` after `begin_handshake_request`: the
-  sentence says the private key was used "to compute the
-  HandshakeFinalMessageToken dh1 property". The initiator computes `dh1`
-  for the HandshakeRequestMessageToken; the Final only echoes it. Add: "For
-  a KEM, the operation decapsulates the ciphertext in dh2 with the
-  decapsulation key that belongs to dh1".
-- Table 59, `process_handshake` after `begin_handshake_reply`: add "For a
-  KEM, the shared secret is the one obtained when begin_handshake_reply
-  encapsulated to dh1".
+  Key, or for a KEM the ciphertext encapsulated to dh1".
+- After Table 57: the same encoding sentence, for `dh1` and `dh2`, becomes
+  "The encoding of the key establishment values in the properties dh1 and
+  dh2 depends on the algorithm and is described in 8.3".
+- After Table 58: "The Key Agreement public key shall be for the same
+  algorithm and Domain Parameters that were used for the
+  HandshakeRequestMessageToken key received as value of the dh2 property"
+  becomes "The key establishment value in dh2 shall be for the algorithm,
+  and the Domain Parameters if any, of dh1, as named by c.kagree_algo in
+  the HandshakeRequestMessageToken". The paragraph is about the Reply, so it
+  belongs after Table 57.
+- Table 59, `process_handshake` on a handle from `begin_handshake_request`:
+  "The operation shall use the Key Agreement Public Key in the dh2 property
+  in combination with the Key Agreement Private Key it used to compute the
+  HandshakeFinalMessageToken dh1 property to compute the shared secret"
+  becomes "The operation shall compute the shared secret from dh2 and the
+  private value it used to create the dh1 property of the
+  HandshakeRequestMessageToken, as described in 8.3: for a Diffie-Hellman
+  algorithm, by combining the Key Agreement Public Key in dh2 with its Key
+  Agreement Private Key; for a KEM, by decapsulating the ciphertext in dh2
+  with its decapsulation key". (The 1.2 sentence also names the Final where
+  it means the Request.)
+- Table 59, `process_handshake` on a handle from `begin_handshake_reply`:
+  "The operation shall use the Key Agreement Public Key in the dh1 property
+  in combination with the Key Agreement Private Key it used to compute the
+  HandshakeReplyMessageToken dh2 property to compute the shared secret"
+  becomes "The operation shall obtain the shared secret as described in 8.3:
+  for a Diffie-Hellman algorithm, by combining the Key Agreement Public Key
+  in dh1 with the Key Agreement Private Key it used to create dh2; for a
+  KEM, it is the secret obtained when begin_handshake_reply encapsulated to
+  dh1".
+
+### Authentication of the algorithm choice
 
 One more rule applies to every key establishment algorithm, not only the
 new ones. With `AUTO` (10.3.1.4) the plugin chooses, and the only thing it
@@ -133,13 +167,27 @@ nothing authenticates. A plugin that chooses by it ("ML-KEM if the peer has
 it, otherwise ECDH") can be steered by an attacker who rewrites discovery:
 two participants that both support ML-KEM settle on an algorithm both still
 accept, such as `ECDH+prime256v1-CEUM`. The peer's real algorithm info is
-also inside its `c.pdata`, which is hashed and signed. So: once the
-handshake has been verified, the algorithm info in the peer's `c.pdata`
-must equal what discovery delivered for that peer, or the peer is not
-authenticated. The formal model finds the downgrade without this check and
-none with it (`formal/README.md`). Plugins that always use one configured
-algorithm, as the adapters here and the OpenDDS built-in plugin do, are not
-exposed, but they cannot adapt to the peer either.
+also inside its `c.pdata`, which is hashed and signed.
+
+The rule: once the handshake has been verified, the algorithm info in the
+peer's `c.pdata` must equal what discovery delivered for that peer, or the
+peer is not authenticated. Both sides are compared after applying the
+defaults of 7.3.11.2, 7.3.12.2 and 7.3.13.2, so a parameter that is absent
+counts as its default value, and an attacker who removes the parameters
+from discovery is caught as well. The comparison belongs to whoever makes
+the choice. The 1.2 SPI gives the Authentication plugin no standard access
+to the peer's discovery data, so a plugin that adapts to its peer already
+gets that data from its middleware, and can compare with the same data.
+
+The formal model finds the downgrade without this check and none with it
+(`formal/README.md`). In the model the two algorithms are a strong and a
+weak KEM; the weak one stands for any algorithm both sides accept and the
+attacker can break, such as ECDH against an attacker with a quantum
+computer. The attack does not depend on how the weak algorithm works. The
+model abstracts the 1.2 algorithm masks as a single announced value.
+Plugins that always use one configured algorithm, as the adapters here and
+the OpenDDS built-in plugin do, are not exposed, but they cannot adapt to
+the peer either.
 
 ## 10.4 Governance
 

@@ -52,7 +52,9 @@ present.
 ## Certificates
 
 Identity certificates and the identity CA use ML-DSA-65, ML-DSA-87 or ECDSA
-P-256, in any combination; other keys are refused. An ECDSA identity still
+P-256, in any combination; other keys are refused. The tests issue identity
+certificates directly from the configured identity CA; chains with
+intermediate CAs have not been tested. An ECDSA identity still
 gets an ML-KEM handshake. `certs/generate_certs.sh` makes ML-DSA and ECDSA
 examples. Run `certs/generate_certs.sh` with an OpenSSL 3.5+
 executable:

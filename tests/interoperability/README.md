@@ -6,7 +6,9 @@ over a reliable topic with encrypted data, metadata and discovery. Access
 control and cryptography are each implementation's built-in plugins.
 
 `run.sh` runs four cases: each side publishing, and each side as handshake
-initiator. The initiator is decided by the adjusted GUIDs, which come from
+initiator. The governance document sets `allow_unauthenticated_participants`
+to false and encrypts discovery and data, so samples only arrive after the
+two participants have authenticated each other. The initiator is decided by the adjusted GUIDs, which come from
 the subject names, so swapping alice and bob swaps the initiator.
 
 ## Running
@@ -78,6 +80,11 @@ messages are always fragmented.
    sends announcements only to OpenDDS's metatraffic port, where OpenDDS
    does not accept them, and OpenDDS never discovers it. `run.sh` starts
    OpenDDS first.
+
+Neither PQSec plugin accepts a classical key establishment algorithm, so a
+participant with a PQSec plugin and one with a built-in PKI-DH plugin do not
+authenticate each other. A plugin for a mixed deployment would offer both, and
+is the case that needs the algorithm check of `protocol/pkidh-mlkem.md`.
 
 The two access control plugins accept governance and permissions signed
 without the CA certificate, which `setup.sh` uses; see

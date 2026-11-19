@@ -118,7 +118,9 @@ UtilityConfig=BuiltIn
 
 Configure the ordinary DDS Security certificate, permissions, and governance QoS
 properties on each participant.  The identity certificate and the identity CA
-use ML-DSA-65, ML-DSA-87 or ECDSA P-256, in any combination. An ECDSA identity
+use ML-DSA-65, ML-DSA-87 or ECDSA P-256, in any combination. The tests issue
+identity certificates directly from the identity CA; chains with intermediate
+CAs have not been tested. An ECDSA identity
 still gets an ML-KEM handshake: that protects recorded traffic without
 changing the PKI, and keeps the handshake small (see
 [protocol/pkidh-mlkem-sizes.md](../../protocol/pkidh-mlkem-sizes.md)).  The

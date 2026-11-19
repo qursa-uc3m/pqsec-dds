@@ -62,7 +62,8 @@ Lemmas:
 ./run.sh
 ```
 
-runs every combination below. A single one:
+runs every combination below. It fails when `tamarin-prover` is not on the
+PATH, or when a combination does not report all six lemmas. A single one:
 
 ```sh
 tamarin-prover -D=HYBRID -D=BREAKKEM --prove pkidh.spthy
@@ -146,7 +147,12 @@ their configured algorithm, so they are not exposed today.
 - One signature algorithm, and the permissions document and its CA are left
   out.
 - No leaks of session state; rule 5 (erasure) is assumed.
-- Rule 3 (one ciphertext per Request, retransmissions get the same Reply) is
-  not modelled: every Request gets one Reply.
+- Rule 3 (one ciphertext per Request, retransmissions get an equivalent
+  Reply) is not modelled: every Request gets one Reply.
 - The downgrade model has the initiator choose; the replier accepts any
   algorithm it supports, as in 1.2.
+- The two algorithms of `NEGOTIATE` are labelled `strong` and `weak`, and
+  the weak one gives its secret to the attacker. It stands for any algorithm
+  both sides still accept and the attacker can break, such as ECDH against
+  an attacker with a quantum computer; the attack does not depend on how it
+  works. The 1.2 algorithm masks are abstracted as one announced value.

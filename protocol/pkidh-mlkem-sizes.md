@@ -30,7 +30,9 @@ Key establishment X25519MLKEM768 in every row. Identity CA, identity and
 Permissions CA use the same algorithm. Sizes in bytes; fragments of 1344
 bytes; the last column is the chance that the three messages get through
 without a resend when 1% of fragments are lost. Rows marked * are modelled,
-because OpenSSL has neither FN-DSA nor the composites.
+because OpenSSL has neither FN-DSA nor the composites. ECDSA signatures are
+DER-encoded and vary by a few bytes, so the ECDSA rows change slightly from
+run to run.
 
 | Signature | c.id | c.perm | Request | Reply | Final | Total | Fragments | No resend at 1% loss |
 |---|---|---|---|---|---|---|---|---|
@@ -66,9 +68,9 @@ handshake signature). On the machine used here (x86_64, 2 cores):
 
 ## Reading the table
 
-**The largest item is not the algorithm.** DDS Security 1.2 (10.4.1.5)
-requires the signer's certificate inside the S/MIME signature of the
-permissions document. The receiver has the Permissions CA configured and
+**More than a quarter of the handshake is a certificate nobody uses.** DDS
+Security 1.2 (10.4.1.5) requires the signer's certificate inside the S/MIME
+signature of the permissions document. The receiver has the Permissions CA configured and
 never needs it, but every Request and Reply carries it. With an ML-DSA-65
 Permissions CA that is 7.5 KB per message, 28% of the handshake. Signing
 with `openssl cms -nocerts` removes it. The CycloneDDS and OpenDDS access
@@ -117,6 +119,16 @@ here accept it.
 fragments. Rule 2 of `pkidh-mlkem.md` already forbids using an echo as
 input, so the proposal asks implementations to omit them. The adapters here
 do; the OpenDDS built-in plugin sends them.
+
+**An unauthenticated Request costs the replier more.** A Request carries no
+signature, so anyone can send one, or replay one, as in 1.2 with classical
+algorithms. The replier verifies the certificate and the permissions,
+encapsulates, signs and sends a Reply. With ML-DSA-65 that is about 1.2 ms
+of CPU (`openssl speed`: X25519MLKEM768 encapsulation 0.09 ms) against
+about 0.2 ms with ECDSA, and a Reply of 19.6 KB for a Request of 16.3 KB,
+so the traffic is barely amplified. Middleware such as OpenDDS drops a
+Request it has already seen from the same source; rate limits for the rest
+are outside the protocol.
 
 **Permissions signed with ML-DSA need CMS.** OpenSSL's PKCS#7 functions
 cannot sign or verify ML-DSA or SLH-DSA S/MIME documents; its CMS functions
