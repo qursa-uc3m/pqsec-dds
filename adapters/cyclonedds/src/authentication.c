@@ -1695,10 +1695,22 @@ static X509 *load_X509_certificate_from_binprop(const DDS_Security_BinaryPropert
   return cert;
 }
 
+/* What a Request or Reply says about the peer. It replaces what is stored for the
+ * peer only once the token has passed every check, so a rejected token leaves
+ * nothing behind. */
+typedef struct {
+  X509 *identityCert;
+  char *permissionsDocument;
+  const DDS_Security_OctetSeq *pdata;
+  const unsigned char *challenge;
+  AuthenticationAlgoKind_t dsignAlgoKind, kagreeAlgoKind;
+} PeerCredentials;
+
 static DDS_Security_ValidationResult_t
 validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
                               enum handshake_token_type token_type, HandshakeInfo *handshake,
-                              X509Seq *trusted_ca_list, DDS_Security_SecurityException *ex) {
+                              X509Seq *trusted_ca_list, PeerCredentials *peer,
+                              DDS_Security_SecurityException *ex) {
   DBG_TRACE("Entering validate_handshake_token_impl (token_type=%d)\n", token_type);
   IdentityRelation *const relation = handshake->relation;
   X509 *identityCert = NULL;
@@ -1763,26 +1775,16 @@ validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
       return DDS_SECURITY_VALIDATION_FAILED;
     }
     DBG_TRACE("Loaded identityCert from C_ID\n");
-
-    /* Update remote identity certificate */
-    if (relation->remoteIdentity->identityCert) {
-      X509_free(relation->remoteIdentity->identityCert);
-      DBG_TRACE("Freed old remote identity certificate\n");
-    }
-    relation->remoteIdentity->identityCert = identityCert;
-    DBG_TRACE("Set new remote identity certificate\n");
+    peer->identityCert = identityCert;
 
     if ((c_perm = find_required_binprop(token, DDS_AUTHTOKEN_PROP_C_PERM, ex)) == NULL) {
       DBG_ERR("Missing C_PERM property\n");
       return DDS_SECURITY_VALIDATION_FAILED;
     }
     DBG_TRACE("Found C_PERM property (length=%" PRIu32 ")\n", c_perm->value._length);
-    if (c_perm->value._length > 0) {
-      ddsrt_free(relation->remoteIdentity->permissionsDocument);
-      relation->remoteIdentity->permissionsDocument =
-          string_from_data(c_perm->value._buffer, c_perm->value._length);
-      DBG_TRACE("Set remote permissionsDocument\n");
-    }
+    peer->permissionsDocument = c_perm->value._length > 0
+                                    ? string_from_data(c_perm->value._buffer, c_perm->value._length)
+                                    : ddsrt_strdup("");
 
     if ((c_pdata = find_required_binprop(token, DDS_AUTHTOKEN_PROP_C_PDATA, ex)) == NULL) {
       DBG_ERR("Missing C_PDATA property\n");
@@ -1935,8 +1937,7 @@ validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
       }
       DBG_TRACE("Challenge matches stored rchallenge\n");
     } else if (token_type != HS_TOKEN_FINAL) {
-      relation->rchallenge = ddsrt_memdup(rc->value._buffer, sizeof(AuthenticationChallenge));
-      DBG_TRACE("Stored new rchallenge from token\n");
+      peer->challenge = rc->value._buffer;
     }
   }
 
@@ -1987,17 +1988,13 @@ validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
     DBG_TRACE("challenge1 validated\n");
   }
 
-  /* Update remote identity information for REQUEST and REPLY tokens */
   if (token_type == HS_TOKEN_REQ || token_type == HS_TOKEN_REPLY) {
     assert(dsignAlgoKind != AUTH_ALGO_KIND_UNKNOWN);
     assert(kagreeAlgoKind != AUTH_ALGO_KIND_UNKNOWN);
     assert(c_pdata != NULL);
-
-    relation->remoteIdentity->dsignAlgoKind = dsignAlgoKind;
-    relation->remoteIdentity->kagreeAlgoKind = kagreeAlgoKind;
-    DDS_Security_OctetSeq_copy(&relation->remoteIdentity->pdata, &c_pdata->value);
-    DBG_TRACE("Updated remote identity dsignAlgoKind=%d, kagreeAlgoKind=%d\n", dsignAlgoKind,
-              kagreeAlgoKind);
+    peer->dsignAlgoKind = dsignAlgoKind;
+    peer->kagreeAlgoKind = kagreeAlgoKind;
+    peer->pdata = &c_pdata->value;
   }
 
   /* Validate signatures for REPLY and FINAL tokens */
@@ -2006,7 +2003,7 @@ validate_handshake_token_impl(const DDS_Security_HandshakeMessageToken *token,
     assert(token_type == HS_TOKEN_REPLY);
     DBG_CRYPTO("Validating signature for REPLY token\n");
 
-    EVP_PKEY *public_key = X509_get_pubkey(relation->remoteIdentity->identityCert);
+    EVP_PKEY *public_key = X509_get_pubkey(identityCert);
     if (!public_key) {
       DBG_ERR("X509_get_pubkey failed\n");
       return set_exception(ex, "X509_get_pubkey failed");
@@ -2086,25 +2083,31 @@ static DDS_Security_ValidationResult_t
 validate_handshake_token(const DDS_Security_HandshakeMessageToken *token,
                          enum handshake_token_type token_type, HandshakeInfo *handshake,
                          X509Seq *trusted_ca_list, DDS_Security_SecurityException *ex) {
-  DBG_TRACE("Entering validate_handshake_token\n");
+  PeerCredentials peer = {.identityCert = NULL};
   const DDS_Security_ValidationResult_t ret =
-      validate_handshake_token_impl(token, token_type, handshake, trusted_ca_list, ex);
+      validate_handshake_token_impl(token, token_type, handshake, trusted_ca_list, &peer, ex);
 
   if (ret != DDS_SECURITY_VALIDATION_OK) {
     DBG_ERR("validate_handshake_token_impl failed with code %d\n", ret);
-    if (token_type == HS_TOKEN_REQ || token_type == HS_TOKEN_REPLY) {
-      IdentityRelation *relation = handshake->relation;
-
-      if (relation->remoteIdentity->identityCert) {
-        X509_free(relation->remoteIdentity->identityCert);
-        relation->remoteIdentity->identityCert = NULL;
-        DBG_TRACE("Freed remote identity certificate after failure\n");
-      }
-    }
-  } else {
-    DBG_TRACE("validate_handshake_token_impl returned OK\n");
+    X509_free(peer.identityCert);
+    ddsrt_free(peer.permissionsDocument);
+    return ret;
   }
 
+  if (token_type == HS_TOKEN_REQ || token_type == HS_TOKEN_REPLY) {
+    IdentityRelation *relation = handshake->relation;
+    RemoteIdentityInfo *remote = relation->remoteIdentity;
+
+    X509_free(remote->identityCert);
+    remote->identityCert = peer.identityCert;
+    ddsrt_free(remote->permissionsDocument);
+    remote->permissionsDocument = peer.permissionsDocument;
+    remote->dsignAlgoKind = peer.dsignAlgoKind;
+    remote->kagreeAlgoKind = peer.kagreeAlgoKind;
+    DDS_Security_OctetSeq_copy(&remote->pdata, peer.pdata);
+    if (peer.challenge)
+      relation->rchallenge = ddsrt_memdup(peer.challenge, sizeof(AuthenticationChallenge));
+  }
   return ret;
 }
 
