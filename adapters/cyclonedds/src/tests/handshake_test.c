@@ -558,26 +558,46 @@ static bool tampered_final_test(void) {
   return ok;
 }
 
-/* An identical Request gets the same ciphertext.  A Request with a new key
- * gets a fresh one, and the handshake still completes. */
+/* An identical Request gets a Reply with the same dh2 and challenge2, so the
+ * initiator can answer either Reply and the replier accepts the Final. */
 static bool retransmission_test(void) {
+  exchange e;
+  DDS_Security_HandshakeMessageToken first = DDS_SECURITY_TOKEN_INIT;
+  bool ok = prepare(&e) && reply(&e);
+  if (ok) {
+    DDS_Security_DataHolder_copy(&first, &e.reply);
+  }
+  ok = ok && reply(&e);
+  for (size_t i = 0; ok && i < 2; ++i) {
+    const char *name = i == 0 ? "dh2" : "challenge2";
+    const DDS_Security_OctetSeq *a = property(&first, name), *b = property(&e.reply, name);
+    ok =
+        check(a && b && a->_length == b->_length && memcmp(a->_buffer, b->_buffer, a->_length) == 0,
+              "retransmitted request got a different reply");
+  }
+  if (ok) {
+    DDS_Security_DataHolder_deinit(&e.reply);
+    DDS_Security_DataHolder_copy(&e.reply, &first);
+    ok = complete(&e);
+  }
+  DDS_Security_DataHolder_deinit(&first);
+  finish(&e);
+  return ok;
+}
+
+/* A Request with a new key gets a fresh ciphertext, and the handshake completes. */
+static bool new_request_test(void) {
   exchange e;
   DDS_Security_OctetSeq first = DDS_SECURITY_SEQUENCE_INIT;
   bool ok = prepare(&e) && reply(&e);
   if (ok) {
     DDS_Security_OctetSeq_copy(&first, property(&e.reply, "dh2"));
   }
-  ok = ok && reply(&e);
+  ok = ok && request(&e) && reply(&e);
   const DDS_Security_OctetSeq *second = ok ? property(&e.reply, "dh2") : NULL;
   ok = second &&
-       check(second->_length == first._length &&
-                 memcmp(second->_buffer, first._buffer, first._length) == 0,
-             "retransmitted request got a different ciphertext") &&
-       request(&e) && reply(&e);
-  const DDS_Security_OctetSeq *third = ok ? property(&e.reply, "dh2") : NULL;
-  ok = third &&
-       check(third->_length != first._length ||
-                 memcmp(third->_buffer, first._buffer, first._length) != 0,
+       check(second->_length != first._length ||
+                 memcmp(second->_buffer, first._buffer, first._length) != 0,
              "request with a new key got the old ciphertext") &&
        complete(&e);
   DDS_Security_OctetSeq_deinit(&first);
@@ -691,10 +711,10 @@ int main(void) {
                   happy_path_test("X25519MLKEM768") && happy_path_test("AUTO") &&
                   happy_path_test(NULL) && substituted_public_key_test() &&
                   substituted_ciphertext_test() && credential_binding_test() &&
-                  tampered_final_test() && retransmission_test() && accepted_kems_test() &&
-                  initiator_chooses_test() && classical_request_test() && reply_algorithm_test() &&
-                  reply_echo_test() && final_mismatch_test() && ecdsa_identity_tests() &&
-                  rejected_identity_test() && different_ca_test();
+                  tampered_final_test() && retransmission_test() && new_request_test() &&
+                  accepted_kems_test() && initiator_chooses_test() && classical_request_test() &&
+                  reply_algorithm_test() && reply_echo_test() && final_mismatch_test() &&
+                  ecdsa_identity_tests() && rejected_identity_test() && different_ca_test();
 
   free_identity(&mldsa);
   free_identity(&other_ca);
