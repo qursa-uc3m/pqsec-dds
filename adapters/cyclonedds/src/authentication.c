@@ -416,7 +416,8 @@ static void handshake_info_free(SecurityObject *obj) {
       handshake->kem_ss = NULL;
     }
     if (handshake->shared_secret_handle_impl) {
-      ddsrt_free(handshake->shared_secret_handle_impl->shared_secret);
+      free_secret(handshake->shared_secret_handle_impl->shared_secret,
+                  (size_t)handshake->shared_secret_handle_impl->shared_secret_size);
       ddsrt_free(handshake->shared_secret_handle_impl);
     }
     security_object_deinit((SecurityObject *)handshake);
@@ -782,8 +783,8 @@ DDS_Security_ValidationResult_t validate_local_identity(
 
   /* Clean up string allocations */
   ddsrt_free(crlPEM);
-  ddsrt_free(password);
-  ddsrt_free(privateKeyPEM);
+  free_secret_string(password);
+  free_secret_string(privateKeyPEM);
   ddsrt_free(identityCaPEM);
   ddsrt_free(identityCertPEM);
   ddsrt_free(trusted_ca_dir);
@@ -826,8 +827,8 @@ err_identity_ca_not_trusted:
 err_inv_identity_ca:
   ddsrt_free(crlPEM);
 err_inv_trusted_ca_dir:
-  ddsrt_free(password);
-  ddsrt_free(privateKeyPEM);
+  free_secret_string(password);
+  free_secret_string(privateKeyPEM);
   ddsrt_free(trusted_ca_dir);
 err_no_private_key:
   ddsrt_free(identityCaPEM);
@@ -2579,9 +2580,6 @@ process_handshake(dds_security_authentication *instance,
       goto err_openssl;
     }
 
-    DBG_DATA("Shared secret (%d bytes):\n", shared_secret_length);
-    DBG_DUMP_HEX(shared_secret, shared_secret_length, "Shared Secret");
-
     handshake->shared_secret_handle_impl =
         ddsrt_malloc(sizeof(DDS_Security_SharedSecretHandleImpl));
     handshake->shared_secret_handle_impl->shared_secret = shared_secret;
@@ -2634,7 +2632,8 @@ process_handshake(dds_security_authentication *instance,
   return hs_result;
 
 err_invalid_expiry:
-  ddsrt_free(handshake->shared_secret_handle_impl->shared_secret);
+  free_secret(handshake->shared_secret_handle_impl->shared_secret,
+              (size_t)handshake->shared_secret_handle_impl->shared_secret_size);
   ddsrt_free(handshake->shared_secret_handle_impl);
   handshake->shared_secret_handle_impl = NULL;
 err_openssl:

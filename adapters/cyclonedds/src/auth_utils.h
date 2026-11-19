@@ -108,6 +108,9 @@ DDS_Security_ValidationResult_t get_certificate_contents(X509 *cert, unsigned ch
                                                          uint32_t *size,
                                                          DDS_Security_SecurityException *ex);
 void free_ca_list_contents(X509Seq *ca_list);
+/* Overwrite a secret before freeing it with ddsrt_free(). */
+void free_secret(void *secret, size_t size);
+void free_secret_string(char *secret);
 DDS_Security_ValidationResult_t get_trusted_ca_list(const char *trusted_ca_dir, X509Seq *ca_list,
                                                     DDS_Security_SecurityException *ex);
 char *string_from_data(const unsigned char *data, uint32_t size);

@@ -38,6 +38,7 @@
 #include "auth_utils.h"
 #include "debug.h"
 #include <openssl/core_names.h>
+#include <openssl/crypto.h>
 
 #define MAX_TRUSTED_CA 100
 
@@ -488,7 +489,7 @@ DDS_Security_ValidationResult_t load_X509_private_key(const char *data, const ch
   char *contents = NULL;
   assert(data);
   assert(privateKey);
-  DBG_TRACE("load_X509_private_key() called (data='%s')\n", data);
+  DBG_TRACE("load_X509_private_key() called\n");
 
   switch (get_conf_item_type(data, &contents)) {
   case AUTH_CONF_ITEM_PREFIX_FILE:
@@ -503,17 +504,16 @@ DDS_Security_ValidationResult_t load_X509_private_key(const char *data, const ch
     DBG_ERR("PKCS11 format not supported\n");
     result = DDS_SECURITY_VALIDATION_FAILED;
     DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE,
-                               (int)result, "PrivateKey pkcs11 format currently not supported:\n%s",
-                               data);
+                               (int)result, "PrivateKey pkcs11 format currently not supported");
     break;
   default:
     DBG_ERR("Wrong PrivateKey format\n");
     result = DDS_SECURITY_VALIDATION_FAILED;
     DDS_Security_Exception_set(ex, DDS_AUTH_PLUGIN_CONTEXT, DDS_SECURITY_ERR_UNDEFINED_CODE,
-                               (int)result, "Specified PrivateKey has wrong format:\n%s", data);
+                               (int)result, "Specified PrivateKey has wrong format");
     break;
   }
-  ddsrt_free(contents);
+  free_secret_string(contents);
 
   if (result == DDS_SECURITY_VALIDATION_OK) {
     if (check_key_type_and_size(*privateKey, true, ex) != DDS_SECURITY_VALIDATION_OK) {
@@ -978,4 +978,16 @@ validate_kem_ciphertext_in_token(const DDS_Security_BinaryProperty_t *property,
                                  AuthenticationAlgoKind_t expected_kind,
                                  DDS_Security_SecurityException *ex) {
   return validate_kem_property(property, expected_kind, false, ex);
+}
+
+void free_secret(void *secret, size_t size) {
+  if (secret) {
+    OPENSSL_cleanse(secret, size);
+    ddsrt_free(secret);
+  }
+}
+
+void free_secret_string(char *secret) {
+  if (secret)
+    free_secret(secret, strlen(secret));
 }

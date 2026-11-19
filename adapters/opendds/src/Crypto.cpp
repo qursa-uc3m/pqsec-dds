@@ -98,6 +98,8 @@ bool Kem::encapsulate(std::vector<unsigned char>& ciphertext, std::vector<unsign
                                        &secret_size) == 1;
   EVP_PKEY_CTX_free(context);
   if (!ok) {
+    OPENSSL_cleanse(&secret[0], secret.size());
+    secret.clear();
     error = openssl_errors("ML-KEM encapsulation failed");
     return false;
   }
@@ -127,6 +129,8 @@ bool Kem::decapsulate(const std::vector<unsigned char>& ciphertext,
                                        ciphertext.size()) == 1;
   EVP_PKEY_CTX_free(context);
   if (!ok) {
+    OPENSSL_cleanse(&secret[0], secret.size());
+    secret.clear();
     error = openssl_errors("ML-KEM decapsulation failed");
     return false;
   }
